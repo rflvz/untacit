@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      App shell (Tauri desktop / authenticated visor), not the public site:
+      keep it out of search indexes. The indexable landing lives in site/.
+    -->
+    <meta name="robots" content="noindex" />
+    <meta
+      name="description"
+      content="Visor de untacit: grafo tipado de la lógica de negocio con cola de revisión, drift y entrevistas."
+    />
+    <meta name="theme-color" content="#05070C" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400..800;1,400..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+    />
+    <title>untacit</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

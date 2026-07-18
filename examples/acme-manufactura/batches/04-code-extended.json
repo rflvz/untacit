@@ -1,0 +1,2421 @@
+{
+  "run_id": "2026-07-10T09-00-00-code-extended",
+  "source_type": "code",
+  "schema_version": 1,
+  "extractor": {
+    "name": "extractor-code",
+    "model": "claude-fable-5",
+    "prompt_version": "v1"
+  },
+  "nodes": [
+    {
+      "mention": "Proveedor",
+      "type": "entity",
+      "name": "Proveedor",
+      "description": "Empresa que suministra bobinas de papel, tintas o troqueles a Acme. Tiene estado de homologación y certificados vigentes.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/compras/proveedores.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export interface Proveedor { id: string; razonSocial: string; homologado: boolean; certificados: Certificado[]; plazoEntregaDias: number; }"
+      }
+    },
+    {
+      "mention": "OrdenCompra",
+      "type": "entity",
+      "name": "Orden de compra",
+      "description": "Pedido de aprovisionamiento emitido a un proveedor, con líneas de bobina y fecha de entrega solicitada.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/compras/ordenes-compra.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export interface OrdenCompra { numero: string; proveedorId: string; lineas: LineaCompra[]; fechaEntrega: Date; estado: EstadoCompra; }"
+      }
+    },
+    {
+      "mention": "RecepcionMercancia",
+      "type": "entity",
+      "name": "Recepción de mercancía",
+      "description": "Registro de entrada de una entrega de proveedor: orden de compra asociada, bultos y resultado del control de entrada.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/compras/recepciones.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export interface RecepcionMercancia { id: string; ordenCompra: string; bultos: number; gramajeMedido: number; conforme: boolean; }"
+      }
+    },
+    {
+      "mention": "altaProveedor",
+      "type": "process",
+      "name": "Alta de proveedor",
+      "description": "Registro de un proveedor nuevo con sus datos fiscales, certificados y condiciones de entrega.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/compras/proveedores.ts",
+          "line_start": 16,
+          "line_end": 25,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export async function altaProveedor(datos: DatosProveedor): Promise<Proveedor> { validarFiscales(datos); return repositorio.crear({ ...datos, homologado: false }); }"
+      }
+    },
+    {
+      "mention": "aprovisionamientoBobinas",
+      "type": "process",
+      "name": "Aprovisionamiento de bobinas",
+      "description": "Emisión de órdenes de compra de bobinas a proveedores homologados a partir de las necesidades del MRP.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/compras/aprovisionamiento.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export async function aprovisionarBobinas(necesidades: Necesidad[]): Promise<OrdenCompra[]> { const agrupadas = agruparPorProveedor(necesidades); return emitirOrdenes(agrupadas); }"
+      }
+    },
+    {
+      "mention": "revisionStockMinimo",
+      "type": "process",
+      "name": "Revisión de stock mínimo",
+      "description": "Comprobación nocturna del stock de bobinas contra el mínimo configurado por gramaje.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-mrp",
+          "path": "src/mrp/revision-stock.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "cron.schedule('0 2 * * *', async () => { const faltantes = await stock.bajoMinimo(); if (faltantes.length) emitir(new StockBajoMinimoEvent(faltantes)); });"
+      }
+    },
+    {
+      "mention": "bloqueoProveedorNoHomologado",
+      "type": "rule",
+      "name": "Bloqueo de proveedor no homologado",
+      "description": "No se puede emitir una orden de compra a un proveedor sin homologación vigente.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/compras/ordenes-compra.ts",
+          "line_start": 16,
+          "line_end": 25,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (!proveedor.homologado) { throw new CompraRechazadaError('Proveedor sin homologación vigente: no se admite orden de compra'); }"
+      }
+    },
+    {
+      "mention": "toleranciaGramajeRecepcion",
+      "type": "rule",
+      "name": "Tolerancia de gramaje en recepción",
+      "description": "La bobina recibida se rechaza si su gramaje medido se desvía más de un 4% del solicitado.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/compras/recepciones.ts",
+          "line_start": 16,
+          "line_end": 25,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const TOLERANCIA_GRAMAJE = 0.04; if (Math.abs(medido - solicitado) / solicitado > TOLERANCIA_GRAMAJE) { recepcion.conforme = false; }"
+      }
+    },
+    {
+      "mention": "reposicionStockMinimo",
+      "type": "rule",
+      "name": "Reposición por stock mínimo",
+      "description": "Cuando el stock de un gramaje baja del mínimo, el MRP calcula la cantidad a reponer hasta el nivel objetivo.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-mrp",
+          "path": "src/mrp/reposicion.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const cantidadAPedir = nivelObjetivo(gramaje) - stockActual(gramaje); if (cantidadAPedir > 0) necesidades.push({ gramaje, cantidadAPedir });"
+      }
+    },
+    {
+      "mention": "StockBajoMinimoEvent",
+      "type": "event",
+      "name": "Stock bajo mínimo",
+      "description": "El stock disponible de un gramaje de bobina ha caído por debajo del mínimo configurado.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-mrp",
+          "path": "src/mrp/eventos.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export class StockBajoMinimoEvent { constructor(readonly faltantes: Necesidad[]) {} }"
+      }
+    },
+    {
+      "mention": "OrdenCompraEmitidaEvent",
+      "type": "event",
+      "name": "Orden de compra emitida",
+      "description": "Se ha emitido y enviado una orden de compra a un proveedor.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/compras/ordenes-compra.ts",
+          "line_start": 27,
+          "line_end": 36,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "await publicar(new OrdenCompraEmitidaEvent(orden.numero, proveedor.id));"
+      }
+    },
+    {
+      "mention": "portal-proveedores",
+      "type": "system",
+      "name": "Portal de proveedores",
+      "description": "Portal web donde los proveedores confirman órdenes de compra y publican sus certificados.",
+      "evidence": {
+        "locator": {
+          "repo": "portal-proveedores",
+          "path": "src/index.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// portal-proveedores: confirmación de órdenes y gestión documental de certificados"
+      }
+    },
+    {
+      "mention": "acme-mrp",
+      "type": "system",
+      "name": "MRP Acme",
+      "description": "Sistema de planificación de necesidades de material: stock mínimo, reposición y necesidades de bobina.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-mrp",
+          "path": "src/index.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// acme-mrp: planificación de necesidades de material (bobinas por gramaje)"
+      }
+    },
+    {
+      "mention": "UbicacionAlmacen",
+      "type": "entity",
+      "name": "Ubicación de almacén",
+      "description": "Hueco físico de almacén identificado por pasillo, módulo y altura donde se deposita una bobina o un palet.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/ubicaciones.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export interface UbicacionAlmacen { codigo: string; pasillo: number; modulo: number; altura: number; ocupada: boolean; }"
+      }
+    },
+    {
+      "mention": "StockBobina",
+      "type": "entity",
+      "name": "Stock de bobina",
+      "description": "Existencias de bobina por gramaje y ancho: cantidad disponible, reservada y fecha de entrada de cada unidad.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/stock.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export interface StockBobina { gramaje: number; anchoMm: number; disponibles: number; reservadas: number; entradas: EntradaBobina[]; }"
+      }
+    },
+    {
+      "mention": "Palet",
+      "type": "entity",
+      "name": "Palet",
+      "description": "Unidad de expedición: agrupación de cajas terminadas flejada y etiquetada para carga.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/palets.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export interface Palet { id: string; pedidoNumero: string; cajas: number; pesoKg: number; ubicacion?: string; }"
+      }
+    },
+    {
+      "mention": "recepcionBobinas",
+      "type": "process",
+      "name": "Recepción de bobinas",
+      "description": "Descarga, control de entrada y ubicación de las bobinas entregadas por un proveedor.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/recepcion.ts",
+          "line_start": 12,
+          "line_end": 21,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export async function recibirBobinas(entrega: Entrega): Promise<void> { const recepcion = controlDeEntrada(entrega); await ubicar(recepcion.bobinas); emitir(new BobinaRecibidaEvent(recepcion)); }"
+      }
+    },
+    {
+      "mention": "inventarioCiclico",
+      "type": "process",
+      "name": "Inventario cíclico",
+      "description": "Recuento rotativo semanal de un subconjunto de ubicaciones para cuadrar stock físico y stock del sistema.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/inventario.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export async function inventarioCiclico(semana: number): Promise<Recuento[]> { const ubicaciones = plan.ubicacionesPara(semana); return contar(ubicaciones); }"
+      }
+    },
+    {
+      "mention": "fifoBobinas",
+      "type": "rule",
+      "name": "FIFO de bobinas por antigüedad",
+      "description": "Al asignar bobina a una tirada se consume siempre la de entrada más antigua del gramaje requerido.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/stock.ts",
+          "line_start": 16,
+          "line_end": 25,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const candidatas = stock.porGramaje(gramaje).sort((a, b) => a.fechaEntrada - b.fechaEntrada); return candidatas[0]; // FIFO estricto"
+      }
+    },
+    {
+      "mention": "BobinaRecibidaEvent",
+      "type": "event",
+      "name": "Bobina recibida",
+      "description": "Una bobina ha superado el control de entrada y ha quedado ubicada en el almacén.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/eventos.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export class BobinaRecibidaEvent { constructor(readonly recepcion: RecepcionMercancia) {} }"
+      }
+    },
+    {
+      "mention": "acme-wms",
+      "type": "system",
+      "name": "SGA de almacén",
+      "description": "Sistema de gestión de almacén: ubicaciones, stock de bobinas, picking y cargas.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/index.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// acme-wms: sistema de gestión de almacén (SGA) de la planta de Acme"
+      }
+    },
+    {
+      "mention": "Albaran",
+      "type": "entity",
+      "name": "Albarán",
+      "description": "Documento de entrega que acompaña a la mercancía expedida y que el cliente firma en destino.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/logistica/albaranes.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export interface Albaran { numero: string; pedidoNumero: string; palets: string[]; fechaEntrega?: Date; firmado: boolean; }"
+      }
+    },
+    {
+      "mention": "Transportista",
+      "type": "entity",
+      "name": "Transportista",
+      "description": "Empresa de transporte contratada para las rutas de reparto, con tarifa por kilómetro y capacidad por vehículo.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/logistica/transportistas.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export interface Transportista { id: string; nombre: string; tarifaKm: number; capacidadKg: number; }"
+      }
+    },
+    {
+      "mention": "RutaReparto",
+      "type": "entity",
+      "name": "Ruta de reparto",
+      "description": "Secuencia de entregas asignada a un camión para un día: paradas, kilómetros y carga total.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/logistica/rutas.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export interface RutaReparto { id: string; fecha: Date; transportistaId: string; paradas: Parada[]; cargaKg: number; }"
+      }
+    },
+    {
+      "mention": "pickingExpedicion",
+      "type": "process",
+      "name": "Picking de expedición",
+      "description": "Preparación de los palets de un pedido: localización en almacén, flejado y etiquetado para carga.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/expedicion/picking.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export async function pickingExpedicion(pedido: Pedido): Promise<Palet[]> { const palets = await localizarYFlejar(pedido); etiquetar(palets); return palets; }"
+      }
+    },
+    {
+      "mention": "planificacionRutas",
+      "type": "process",
+      "name": "Planificación de rutas de reparto",
+      "description": "Asignación diaria de entregas pendientes a rutas y transportistas minimizando kilómetros.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/logistica/rutas.ts",
+          "line_start": 16,
+          "line_end": 25,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export async function planificarRutas(fecha: Date): Promise<RutaReparto[]> { const entregas = await pendientes(fecha); return optimizador.asignar(entregas); }"
+      }
+    },
+    {
+      "mention": "cargaCamion",
+      "type": "process",
+      "name": "Carga de camión",
+      "description": "Carga física de los palets de una ruta en el camión asignado, con verificación de peso y destino.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/expedicion/carga.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export async function cargarCamion(ruta: RutaReparto): Promise<void> { for (const palet of paletsDe(ruta)) verificarYSubir(palet); emitir(new CamionCargadoEvent(ruta.id)); }"
+      }
+    },
+    {
+      "mention": "cargaMaximaCamion",
+      "type": "rule",
+      "name": "Carga máxima por camión",
+      "description": "La carga asignada a una ruta no puede superar la capacidad del vehículo del transportista (por defecto 24.000 kg).",
+      "evidence": {
+        "locator": {
+          "repo": "plataforma-transporte",
+          "path": "src/rutas/validaciones.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (ruta.cargaKg > transportista.capacidadKg) { throw new RutaInvalidaError('Carga superior a la capacidad del vehículo'); }"
+      }
+    },
+    {
+      "mention": "agrupacionEntregasCP",
+      "type": "rule",
+      "name": "Agrupación de entregas por código postal",
+      "description": "Las entregas del día se agrupan en rutas por prefijo de código postal para minimizar kilómetros.",
+      "evidence": {
+        "locator": {
+          "repo": "plataforma-transporte",
+          "path": "src/rutas/optimizador.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const grupos = agruparPor(entregas, (e) => e.codigoPostal.slice(0, 2)); return grupos.map(aRuta);"
+      }
+    },
+    {
+      "mention": "prioridadPickingUrgentes",
+      "type": "rule",
+      "name": "Prioridad de picking para urgentes",
+      "description": "Los pedidos marcados como urgentes se preparan antes que el resto en la cola de picking.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/expedicion/picking.ts",
+          "line_start": 16,
+          "line_end": 25,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "cola.sort((a, b) => Number(b.pedido.urgente) - Number(a.pedido.urgente)); // urgentes primero, siempre"
+      }
+    },
+    {
+      "mention": "CamionCargadoEvent",
+      "type": "event",
+      "name": "Camión cargado",
+      "description": "Todos los palets de una ruta han sido verificados y cargados en el camión.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/expedicion/eventos.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export class CamionCargadoEvent { constructor(readonly rutaId: string) {} }"
+      }
+    },
+    {
+      "mention": "plataforma-transporte",
+      "type": "system",
+      "name": "Plataforma de transporte",
+      "description": "Integración con transportistas: optimización de rutas, validación de cargas y seguimiento de entregas.",
+      "evidence": {
+        "locator": {
+          "repo": "plataforma-transporte",
+          "path": "src/index.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// plataforma-transporte: optimizador de rutas e integración con transportistas"
+      }
+    },
+    {
+      "mention": "Tarifa",
+      "type": "entity",
+      "name": "Tarifa",
+      "description": "Lista de precios vigente por tipo de caja, calidad de cartón y tramo de cantidad.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/tarifas.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export interface Tarifa { id: string; vigenciaDesde: Date; precios: PrecioPorM2[]; costePapelReferencia: number; }"
+      }
+    },
+    {
+      "mention": "Presupuesto",
+      "type": "entity",
+      "name": "Presupuesto",
+      "description": "Oferta económica emitida a un cliente para un trabajo de embalaje, con validez limitada.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/presupuestos.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export interface Presupuesto { numero: string; clienteId: string; lineas: LineaPresupuesto[]; validoHasta: Date; aceptado: boolean; }"
+      }
+    },
+    {
+      "mention": "Troquel",
+      "type": "entity",
+      "name": "Troquel",
+      "description": "Herramienta física de corte propiedad del cliente o de Acme, con coste de fabricación amortizable.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/produccion/troqueles.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export interface Troquel { id: string; clienteId?: string; costeFabricacion: number; usosAcumulados: number; ubicacion: string; }"
+      }
+    },
+    {
+      "mention": "elaboracionPresupuestos",
+      "type": "process",
+      "name": "Elaboración de presupuestos",
+      "description": "Confección de la oferta económica: cálculo de material, amortización de troquel y margen comercial.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/presupuestos.ts",
+          "line_start": 16,
+          "line_end": 25,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export function elaborarPresupuesto(solicitud: Solicitud): Presupuesto { const material = costeMaterial(solicitud); const troquel = amortizacionTroquel(solicitud); return componer(material, troquel); }"
+      }
+    },
+    {
+      "mention": "altaTroquel",
+      "type": "process",
+      "name": "Alta de troquel",
+      "description": "Registro de un troquel nuevo con su plano, coste de fabricación y ubicación física en el almacén de troqueles.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/produccion/troqueles.ts",
+          "line_start": 16,
+          "line_end": 25,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export async function altaTroquel(plano: Plano, coste: number): Promise<Troquel> { return troqueles.crear({ plano, costeFabricacion: coste, usosAcumulados: 0 }); }"
+      }
+    },
+    {
+      "mention": "descuentoMaximoComercial",
+      "type": "rule",
+      "name": "Descuento máximo del comercial",
+      "description": "Un comercial no puede aplicar más de un 5% de descuento sobre tarifa sin aprobación de gerencia.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/presupuestos.ts",
+          "line_start": 27,
+          "line_end": 36,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const DESCUENTO_MAX_COMERCIAL = 0.05; if (descuento > DESCUENTO_MAX_COMERCIAL && !aprobadoPorGerencia) { throw new DescuentoNoAutorizadoError(); }"
+      }
+    },
+    {
+      "mention": "precioMinimoM2",
+      "type": "rule",
+      "name": "Precio mínimo por metro cuadrado",
+      "description": "Ninguna línea de presupuesto puede quedar por debajo del precio mínimo por metro cuadrado de cartón.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/tarifas.ts",
+          "line_start": 16,
+          "line_end": 25,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const PRECIO_MINIMO_M2 = 0.42; if (linea.precioM2 < PRECIO_MINIMO_M2) { throw new PrecioBajoMinimoError(linea); }"
+      }
+    },
+    {
+      "mention": "validezPresupuesto",
+      "type": "rule",
+      "name": "Validez de presupuesto",
+      "description": "Un presupuesto caduca a los 30 días naturales de su emisión y no puede aceptarse después.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/presupuestos.ts",
+          "line_start": 38,
+          "line_end": 47,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const VALIDEZ_DIAS = 30; if (hoy > presupuesto.validoHasta) { throw new PresupuestoCaducadoError(presupuesto.numero); }"
+      }
+    },
+    {
+      "mention": "amortizacionTroquel",
+      "type": "rule",
+      "name": "Amortización de troquel en presupuesto",
+      "description": "El coste de fabricación de un troquel nuevo se reparte entre las tres primeras tiradas presupuestadas.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/presupuestos.ts",
+          "line_start": 49,
+          "line_end": 58,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const AMORTIZACION_TIRADAS = 3; const costePorTirada = troquel.costeFabricacion / AMORTIZACION_TIRADAS; presupuesto.costeTroquel = costePorTirada;"
+      }
+    },
+    {
+      "mention": "PresupuestoAceptadoEvent",
+      "type": "event",
+      "name": "Presupuesto aceptado",
+      "description": "El cliente ha aceptado un presupuesto dentro de su plazo de validez.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/eventos.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export class PresupuestoAceptadoEvent { constructor(readonly numero: string) {} }"
+      }
+    },
+    {
+      "mention": "bloqueoTiradaSinOF",
+      "type": "rule",
+      "name": "Bloqueo de tirada sin orden de fabricación",
+      "description": "La troqueladora no admite iniciar una tirada que no tenga orden de fabricación aprobada.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/produccion/tiradas.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (!orden || orden.estado !== 'aprobada') { throw new TiradaSinOrdenError('No se inicia tirada sin orden de fabricación aprobada'); }"
+      }
+    },
+    {
+      "mention": "TiradaCompletadaEvent",
+      "type": "event",
+      "name": "Tirada completada",
+      "description": "Una tirada de troquelado ha terminado con su recuento de cajas buenas y mermas.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/produccion/tiradas.ts",
+          "line_start": 16,
+          "line_end": 25,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export class TiradaCompletadaEvent { constructor(readonly ordenNumero: string, readonly cajasBuenas: number) {} }"
+      }
+    },
+    {
+      "mention": "LimiteCredito",
+      "type": "entity",
+      "name": "Límite de crédito",
+      "description": "Riesgo máximo aceptado por cliente: importe pendiente de cobro que no puede superarse con pedidos nuevos.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/credito.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export interface LimiteCredito { clienteId: string; importeMaximo: number; riesgoActual: number; revisadoEn: Date; }"
+      }
+    },
+    {
+      "mention": "Abono",
+      "type": "entity",
+      "name": "Abono",
+      "description": "Factura rectificativa emitida a favor del cliente por devoluciones o errores de facturación.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/abonos.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export interface Abono { numero: string; facturaOrigen: string; importe: number; motivo: MotivoAbono; }"
+      }
+    },
+    {
+      "mention": "controlLimiteCredito",
+      "type": "process",
+      "name": "Control de límite de crédito",
+      "description": "Recálculo del riesgo vivo por cliente con cada factura emitida o cobrada.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/credito.ts",
+          "line_start": 16,
+          "line_end": 25,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export async function recalcularRiesgo(clienteId: string): Promise<void> { const riesgo = await pendienteDeCobro(clienteId); await limites.actualizar(clienteId, riesgo); }"
+      }
+    },
+    {
+      "mention": "reclamacionImpagos",
+      "type": "process",
+      "name": "Reclamación de impagos",
+      "description": "Ciclo de avisos y llamadas al cliente por facturas vencidas hasta el cobro o el paso a incidencia jurídica.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/impagos.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export async function reclamarImpago(factura: Factura): Promise<void> { const aviso = siguienteAviso(factura); await enviar(aviso); }"
+      }
+    },
+    {
+      "mention": "cierreContableMensual",
+      "type": "process",
+      "name": "Cierre contable mensual",
+      "description": "Conciliación de facturas, abonos y cobros del mes y traspaso al software contable.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/cierre.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export async function cierreContable(mes: string): Promise<Cierre> { conciliar(facturasDe(mes), abonosDe(mes)); return traspasarAContabilidad(mes); }"
+      }
+    },
+    {
+      "mention": "emisionAbonos",
+      "type": "process",
+      "name": "Emisión de abonos",
+      "description": "Emisión de facturas rectificativas por devoluciones aceptadas o errores de facturación detectados.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/abonos.ts",
+          "line_start": 16,
+          "line_end": 25,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export async function emitirAbono(factura: Factura, motivo: MotivoAbono, importe: number): Promise<Abono> { return abonos.emitir({ facturaOrigen: factura.numero, importe, motivo }); }"
+      }
+    },
+    {
+      "mention": "bloqueoLimiteCredito",
+      "type": "rule",
+      "name": "Bloqueo por límite de crédito excedido",
+      "description": "No se admite un pedido nuevo si el riesgo vivo del cliente más el importe del pedido supera su límite de crédito.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/credito.ts",
+          "line_start": 27,
+          "line_end": 36,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (limite.riesgoActual + pedido.importeTotal > limite.importeMaximo) { throw new CreditoExcedidoError(cliente.id); }"
+      }
+    },
+    {
+      "mention": "recargoInteresDemora",
+      "type": "rule",
+      "name": "Recargo por interés de demora",
+      "description": "Las facturas cobradas después del vencimiento devengan un interés de demora mensual del 1%.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-conta",
+          "path": "src/facturas/demora.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const INTERES_DEMORA_MENSUAL = 0.01; const recargo = factura.baseImponible * INTERES_DEMORA_MENSUAL * mesesDeRetraso;"
+      }
+    },
+    {
+      "mention": "escaladoReclamacion",
+      "type": "rule",
+      "name": "Escalado de reclamación de impago",
+      "description": "Tras tres avisos sin cobro, la factura vencida pasa de administración a incidencia jurídica.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-conta",
+          "path": "src/facturas/escalado.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const MAX_AVISOS = 3; if (factura.avisosEnviados >= MAX_AVISOS) { escalarAJuridico(factura); }"
+      }
+    },
+    {
+      "mention": "FacturaVencidaEvent",
+      "type": "event",
+      "name": "Factura vencida",
+      "description": "Una factura ha superado su fecha de vencimiento sin cobro registrado.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-conta",
+          "path": "src/facturas/eventos.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "export class FacturaVencidaEvent { constructor(readonly numero: string, readonly diasVencida: number) {} }"
+      }
+    },
+    {
+      "mention": "UmbralCreditoEvent",
+      "type": "event",
+      "name": "Umbral de crédito alcanzado",
+      "description": "El riesgo vivo de un cliente ha alcanzado el 90% de su límite de crédito.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/credito.ts",
+          "line_start": 38,
+          "line_end": 47,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (riesgo >= limite.importeMaximo * 0.9) emitir(new UmbralCreditoEvent(clienteId));"
+      }
+    },
+    {
+      "mention": "acme-conta",
+      "type": "system",
+      "name": "Software contable",
+      "description": "Aplicación de contabilidad donde se asientan facturas, abonos, cobros e intereses de demora.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-conta",
+          "path": "src/index.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// acme-conta: contabilidad financiera (asientos, vencimientos, demora)"
+      }
+    },
+    {
+      "mention": "Bobina",
+      "type": "entity",
+      "name": "Bobina",
+      "description": "Bobina de papel (materia prima del cartón) con gramaje, ancho y fecha de entrada en almacén.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/stock.ts",
+          "line_start": 48,
+          "line_end": 57,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "entrada.fechaEntrada = new Date(); // cada bobina conserva su fecha de entrada para el FIFO"
+      }
+    },
+    {
+      "mention": "Pedido",
+      "type": "entity",
+      "name": "Pedido",
+      "description": "Pedido de venta de cajas o planchas de cartón, con indicador de urgencia.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/expedicion/picking.ts",
+          "line_start": 69,
+          "line_end": 78,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (pedido.urgente) cola.priorizar(pedido.numero);"
+      }
+    },
+    {
+      "mention": "Factura",
+      "type": "entity",
+      "name": "Factura",
+      "description": "Factura mensual emitida al cliente; su vencimiento gobierna la reclamación de impagos.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-conta",
+          "path": "src/facturas/vencimientos.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (factura.vencimiento < hoy && !factura.cobrada) emitir(new FacturaVencidaEvent(factura.numero, dias));"
+      }
+    },
+    {
+      "mention": "OrdenFabricacion",
+      "type": "entity",
+      "name": "Orden de fabricación",
+      "description": "Orden interna aprobada que autoriza una tirada de troquelado.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/produccion/tiradas.ts",
+          "line_start": 55,
+          "line_end": 64,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const orden = await ordenes.porNumero(tirada.ordenNumero); // debe estar aprobada"
+      }
+    },
+    {
+      "mention": "altaPedido",
+      "type": "process",
+      "name": "Alta de pedido",
+      "description": "Registro de un pedido de venta; consulta el riesgo de crédito antes de confirmar.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/credito.ts",
+          "line_start": 91,
+          "line_end": 100,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "await comprobarCredito(cliente, pedido); // nuevo paso del alta: riesgo de crédito"
+      }
+    },
+    {
+      "mention": "procesoTroquelado",
+      "type": "process",
+      "name": "Troquelado",
+      "description": "Tirada de corte de planchas con troquel montado en máquina.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/produccion/tiradas.ts",
+          "line_start": 66,
+          "line_end": 75,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const tirada = iniciarTirada(orden, troquel, bobina);"
+      }
+    },
+    {
+      "mention": "expedicion",
+      "type": "process",
+      "name": "Expedición",
+      "description": "Preparación y salida de la mercancía de un pedido: picking, carga y albarán.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/expedicion/index.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// Expedición = picking + carga + emisión de albarán"
+      }
+    },
+    {
+      "mention": "facturacionMensual",
+      "type": "process",
+      "name": "Facturación mensual",
+      "description": "Emisión de facturas a fin de mes; su cierre alimenta el cierre contable.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/cierre.ts",
+          "line_start": 37,
+          "line_end": 46,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const facturas = facturasDe(mes); // entrada del cierre contable"
+      }
+    },
+    {
+      "mention": "acme-erp",
+      "type": "system",
+      "name": "ERP Acme",
+      "description": "ERP interno: ventas, compras, producción, logística y finanzas.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/index.ts",
+          "line_start": 5,
+          "line_end": 14,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// acme-erp: módulos de compras, logística y finanzas añadidos en 2025"
+      }
+    },
+    {
+      "mention": "web-pedidos",
+      "type": "system",
+      "name": "Web de pedidos",
+      "description": "Web de autoservicio donde los clientes registran pedidos; aplica las validaciones de riesgo.",
+      "evidence": {
+        "locator": {
+          "repo": "web-pedidos",
+          "path": "src/checkout/credito.ts",
+          "line_start": 12,
+          "line_end": 21,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "await api.credito.comprobar(cliente.id, importeTotal); // llamada previa a confirmar"
+      }
+    },
+    {
+      "mention": "Impago de factura",
+      "type": "event",
+      "name": "Impago de factura",
+      "description": "Vencimiento de una factura sin pago registrado.",
+      "evidence": {
+        "locator": {
+          "repo": "acme-conta",
+          "path": "src/facturas/vencimientos.ts",
+          "line_start": 16,
+          "line_end": 25,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "emitir(new FacturaVencidaEvent(factura.numero, dias)); // impago detectado por el barrido diario"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "type": "VALIDATES",
+      "source_mention": "bloqueoProveedorNoHomologado",
+      "target_mention": "altaProveedor",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/compras/proveedores.ts",
+          "line_start": 27,
+          "line_end": 32,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// El alta queda en estado pendiente hasta superar la homologación\nif (!proveedor.homologado) return EstadoAlta.PENDIENTE;"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "bloqueoProveedorNoHomologado",
+      "target_mention": "Proveedor",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/compras/ordenes-compra.ts",
+          "line_start": 38,
+          "line_end": 43,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (!proveedor.homologado) { throw new CompraRechazadaError(...); }"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "bloqueoProveedorNoHomologado",
+      "target_mention": "portal-proveedores",
+      "evidence": {
+        "locator": {
+          "repo": "portal-proveedores",
+          "path": "src/ordenes/confirmar.ts",
+          "line_start": 5,
+          "line_end": 10,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// El portal oculta el botón de confirmar orden a proveedores sin homologación"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "toleranciaGramajeRecepcion",
+      "target_mention": "recepcionBobinas",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/compras/recepciones.ts",
+          "line_start": 27,
+          "line_end": 32,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (!dentroDeTolerancia(medido, solicitado)) { recepcion.conforme = false; devolverAlProveedor(recepcion); }"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "toleranciaGramajeRecepcion",
+      "target_mention": "Bobina",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/compras/recepciones.ts",
+          "line_start": 34,
+          "line_end": 39,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const medido = medirGramaje(bobina); // gramaje real de la bobina recibida"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "toleranciaGramajeRecepcion",
+      "target_mention": "acme-erp",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/compras/recepciones.ts",
+          "line_start": 41,
+          "line_end": 46,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// Módulo compras del ERP: control de entrada de bobinas"
+      }
+    },
+    {
+      "type": "CALCULATES",
+      "source_mention": "reposicionStockMinimo",
+      "target_mention": "StockBobina",
+      "attrs": {
+        "attribute": "cantidad_a_pedir"
+      },
+      "evidence": {
+        "locator": {
+          "repo": "acme-mrp",
+          "path": "src/mrp/reposicion.ts",
+          "line_start": 16,
+          "line_end": 21,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const cantidadAPedir = nivelObjetivo(gramaje) - stockActual(gramaje);"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "reposicionStockMinimo",
+      "target_mention": "StockBobina",
+      "evidence": {
+        "locator": {
+          "repo": "acme-mrp",
+          "path": "src/mrp/reposicion.ts",
+          "line_start": 23,
+          "line_end": 28,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const stockActual = await stock.porGramaje(gramaje);"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "reposicionStockMinimo",
+      "target_mention": "acme-mrp",
+      "evidence": {
+        "locator": {
+          "repo": "acme-mrp",
+          "path": "src/mrp/reposicion.ts",
+          "line_start": 30,
+          "line_end": 35,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// Reposición automática: forma parte del planificador nocturno del MRP"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "revisionStockMinimo",
+      "target_mention": "StockBajoMinimoEvent",
+      "evidence": {
+        "locator": {
+          "repo": "acme-mrp",
+          "path": "src/mrp/revision-stock.ts",
+          "line_start": 16,
+          "line_end": 21,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (faltantes.length) emitir(new StockBajoMinimoEvent(faltantes));"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "StockBajoMinimoEvent",
+      "target_mention": "aprovisionamientoBobinas",
+      "evidence": {
+        "locator": {
+          "repo": "acme-mrp",
+          "path": "src/mrp/suscripciones.ts",
+          "line_start": 5,
+          "line_end": 10,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "bus.on(StockBajoMinimoEvent, (evento) => aprovisionarBobinas(evento.faltantes));"
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "acme-mrp",
+      "target_mention": "revisionStockMinimo",
+      "evidence": {
+        "locator": {
+          "repo": "acme-mrp",
+          "path": "src/mrp/revision-stock.ts",
+          "line_start": 23,
+          "line_end": 28,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "cron.schedule('0 2 * * *', ...) // el MRP ejecuta la revisión sin intervención humana"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "aprovisionamientoBobinas",
+      "target_mention": "OrdenCompraEmitidaEvent",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/compras/aprovisionamiento.ts",
+          "line_start": 16,
+          "line_end": 21,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "await publicar(new OrdenCompraEmitidaEvent(orden.numero, proveedor.id));"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "aprovisionamientoBobinas",
+      "target_mention": "Proveedor",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/compras/aprovisionamiento.ts",
+          "line_start": 23,
+          "line_end": 28,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const proveedor = await proveedores.homologadoPara(gramaje); // sin proveedor homologado no hay orden"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "aprovisionamientoBobinas",
+      "target_mention": "OrdenCompra",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/compras/aprovisionamiento.ts",
+          "line_start": 30,
+          "line_end": 35,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "return emitirOrdenes(agrupadas); // una orden de compra por proveedor y semana"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "OrdenCompraEmitidaEvent",
+      "target_mention": "recepcionBobinas",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/recepcion.ts",
+          "line_start": 5,
+          "line_end": 10,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// La recepción se planifica al confirmar el proveedor la orden emitida"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "altaProveedor",
+      "target_mention": "portal-proveedores",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/compras/proveedores.ts",
+          "line_start": 34,
+          "line_end": 39,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "await portal.invitar(proveedor.id); // el alta termina cuando el proveedor entra al portal"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "aprovisionamientoBobinas",
+      "target_mention": "acme-mrp",
+      "evidence": {
+        "locator": {
+          "repo": "acme-mrp",
+          "path": "src/mrp/aprovisionamiento.ts",
+          "line_start": 5,
+          "line_end": 10,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// El aprovisionamiento vive en el MRP; el ERP solo registra la orden emitida"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "recepcionBobinas",
+      "target_mention": "BobinaRecibidaEvent",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/recepcion.ts",
+          "line_start": 23,
+          "line_end": 28,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "emitir(new BobinaRecibidaEvent(recepcion));"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "recepcionBobinas",
+      "target_mention": "RecepcionMercancia",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/recepcion.ts",
+          "line_start": 30,
+          "line_end": 35,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const recepcion = controlDeEntrada(entrega); // registra la recepción de mercancía en el ERP"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "recepcionBobinas",
+      "target_mention": "acme-wms",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/recepcion.ts",
+          "line_start": 37,
+          "line_end": 42,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// Descarga y ubicación gestionadas íntegramente por el SGA"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "fifoBobinas",
+      "target_mention": "procesoTroquelado",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/stock.ts",
+          "line_start": 27,
+          "line_end": 32,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// La tirada no arranca si la bobina montada no es la más antigua del gramaje\nif (!esLaMasAntigua(bobina)) throw new FifoVioladoError();"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "fifoBobinas",
+      "target_mention": "Bobina",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/stock.ts",
+          "line_start": 34,
+          "line_end": 39,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const candidatas = stock.porGramaje(gramaje).sort((a, b) => a.fechaEntrada - b.fechaEntrada);"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "fifoBobinas",
+      "target_mention": "acme-wms",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/stock.ts",
+          "line_start": 41,
+          "line_end": 46,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// El SGA propone la bobina y bloquea la confirmación si no se respeta el orden"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "inventarioCiclico",
+      "target_mention": "UbicacionAlmacen",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/inventario.ts",
+          "line_start": 16,
+          "line_end": 21,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const ubicaciones = plan.ubicacionesPara(semana);"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "inventarioCiclico",
+      "target_mention": "StockBobina",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/inventario.ts",
+          "line_start": 23,
+          "line_end": 28,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const diferencia = recuento.fisico - stock.disponibles; // ajuste contra stock del sistema"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "inventarioCiclico",
+      "target_mention": "acme-wms",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/almacen/inventario.ts",
+          "line_start": 30,
+          "line_end": 35,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// Plan de recuento rotativo configurado en el SGA"
+      }
+    },
+    {
+      "type": "PART_OF",
+      "source_mention": "pickingExpedicion",
+      "target_mention": "expedicion",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/expedicion/picking.ts",
+          "line_start": 27,
+          "line_end": 32,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// El picking es la primera fase del proceso de expedición"
+      }
+    },
+    {
+      "type": "PART_OF",
+      "source_mention": "cargaCamion",
+      "target_mention": "expedicion",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/expedicion/carga.ts",
+          "line_start": 16,
+          "line_end": 21,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// La carga cierra la expedición: tras el evento CamionCargado se emite el albarán"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "pickingExpedicion",
+      "target_mention": "Palet",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/expedicion/picking.ts",
+          "line_start": 34,
+          "line_end": 39,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const palets = await localizarYFlejar(pedido);"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "cargaCamion",
+      "target_mention": "Albaran",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/expedicion/carga.ts",
+          "line_start": 23,
+          "line_end": 28,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const albaran = await albaranes.emitirPara(ruta); // sin albarán no sale el camión"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "prioridadPickingUrgentes",
+      "target_mention": "pickingExpedicion",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/expedicion/picking.ts",
+          "line_start": 41,
+          "line_end": 46,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "cola.sort((a, b) => Number(b.pedido.urgente) - Number(a.pedido.urgente));"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "prioridadPickingUrgentes",
+      "target_mention": "Pedido",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/expedicion/picking.ts",
+          "line_start": 48,
+          "line_end": 53,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// La prioridad se decide por el indicador urgente del pedido"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "prioridadPickingUrgentes",
+      "target_mention": "acme-wms",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/expedicion/picking.ts",
+          "line_start": 55,
+          "line_end": 60,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// Orden de la cola de picking gestionado por el SGA"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "cargaMaximaCamion",
+      "target_mention": "cargaCamion",
+      "evidence": {
+        "locator": {
+          "repo": "plataforma-transporte",
+          "path": "src/rutas/validaciones.ts",
+          "line_start": 16,
+          "line_end": 21,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (ruta.cargaKg > transportista.capacidadKg) throw new RutaInvalidaError(...);"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "cargaMaximaCamion",
+      "target_mention": "RutaReparto",
+      "evidence": {
+        "locator": {
+          "repo": "plataforma-transporte",
+          "path": "src/rutas/validaciones.ts",
+          "line_start": 23,
+          "line_end": 28,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const cargaKg = ruta.paradas.reduce((kg, p) => kg + p.pesoKg, 0);"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "cargaMaximaCamion",
+      "target_mention": "plataforma-transporte",
+      "evidence": {
+        "locator": {
+          "repo": "plataforma-transporte",
+          "path": "src/rutas/validaciones.ts",
+          "line_start": 30,
+          "line_end": 35,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// Validación de capacidad en la plataforma antes de confirmar la ruta"
+      }
+    },
+    {
+      "type": "CALCULATES",
+      "source_mention": "agrupacionEntregasCP",
+      "target_mention": "RutaReparto",
+      "attrs": {
+        "attribute": "paradas"
+      },
+      "evidence": {
+        "locator": {
+          "repo": "plataforma-transporte",
+          "path": "src/rutas/optimizador.ts",
+          "line_start": 16,
+          "line_end": 21,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const grupos = agruparPor(entregas, (e) => e.codigoPostal.slice(0, 2));"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "agrupacionEntregasCP",
+      "target_mention": "plataforma-transporte",
+      "evidence": {
+        "locator": {
+          "repo": "plataforma-transporte",
+          "path": "src/rutas/optimizador.ts",
+          "line_start": 23,
+          "line_end": 28,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// Agrupación por prefijo postal dentro del optimizador de rutas"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "cargaCamion",
+      "target_mention": "CamionCargadoEvent",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/expedicion/carga.ts",
+          "line_start": 30,
+          "line_end": 35,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "emitir(new CamionCargadoEvent(ruta.id));"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "planificacionRutas",
+      "target_mention": "Transportista",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/logistica/rutas.ts",
+          "line_start": 27,
+          "line_end": 32,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const disponibles = await transportistas.conCapacidad(fecha);"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "planificacionRutas",
+      "target_mention": "RutaReparto",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/logistica/rutas.ts",
+          "line_start": 34,
+          "line_end": 39,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "return optimizador.asignar(entregas); // materializa las rutas del día"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "planificacionRutas",
+      "target_mention": "plataforma-transporte",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/logistica/rutas.ts",
+          "line_start": 41,
+          "line_end": 46,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// La asignación de rutas delega en el optimizador de la plataforma"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "planificacionRutas",
+      "target_mention": "pickingExpedicion",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/logistica/rutas.ts",
+          "line_start": 48,
+          "line_end": 53,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "for (const ruta of rutas) await colaPicking.encolar(ruta.paradas); // el picking se lanza al cerrar la planificación"
+      }
+    },
+    {
+      "type": "CALCULATES",
+      "source_mention": "precioMinimoM2",
+      "target_mention": "Presupuesto",
+      "attrs": {
+        "attribute": "precio_m2"
+      },
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/tarifas.ts",
+          "line_start": 27,
+          "line_end": 32,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (linea.precioM2 < PRECIO_MINIMO_M2) throw new PrecioBajoMinimoError(linea);"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "precioMinimoM2",
+      "target_mention": "Tarifa",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/tarifas.ts",
+          "line_start": 34,
+          "line_end": 39,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const minimo = tarifa.precios.find((p) => p.calidad === linea.calidad).minimoM2;"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "precioMinimoM2",
+      "target_mention": "acme-erp",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/tarifas.ts",
+          "line_start": 41,
+          "line_end": 46,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// Suelo de precio aplicado por el módulo comercial del ERP"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "descuentoMaximoComercial",
+      "target_mention": "Presupuesto",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/presupuestos.ts",
+          "line_start": 60,
+          "line_end": 65,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (descuento > DESCUENTO_MAX_COMERCIAL && !aprobadoPorGerencia) throw new DescuentoNoAutorizadoError();"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "descuentoMaximoComercial",
+      "target_mention": "Presupuesto",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/presupuestos.ts",
+          "line_start": 67,
+          "line_end": 72,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const descuento = 1 - presupuesto.importe / importeTarifa(presupuesto);"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "descuentoMaximoComercial",
+      "target_mention": "web-pedidos",
+      "evidence": {
+        "locator": {
+          "repo": "web-pedidos",
+          "path": "src/presupuestos/form.ts",
+          "line_start": 5,
+          "line_end": 10,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// La web limita el campo de descuento del comercial al máximo autorizado"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "validezPresupuesto",
+      "target_mention": "Presupuesto",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/presupuestos.ts",
+          "line_start": 74,
+          "line_end": 79,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (hoy > presupuesto.validoHasta) throw new PresupuestoCaducadoError(presupuesto.numero);"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "validezPresupuesto",
+      "target_mention": "acme-erp",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/presupuestos.ts",
+          "line_start": 81,
+          "line_end": 86,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// Caducidad comprobada al aceptar el presupuesto"
+      }
+    },
+    {
+      "type": "CALCULATES",
+      "source_mention": "amortizacionTroquel",
+      "target_mention": "Presupuesto",
+      "attrs": {
+        "attribute": "coste_troquel"
+      },
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/presupuestos.ts",
+          "line_start": 88,
+          "line_end": 93,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "presupuesto.costeTroquel = troquel.costeFabricacion / AMORTIZACION_TIRADAS;"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "amortizacionTroquel",
+      "target_mention": "Troquel",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/presupuestos.ts",
+          "line_start": 95,
+          "line_end": 100,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (troquel.usosAcumulados >= AMORTIZACION_TIRADAS) presupuesto.costeTroquel = 0;"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "amortizacionTroquel",
+      "target_mention": "acme-erp",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/presupuestos.ts",
+          "line_start": 102,
+          "line_end": 107,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// Amortización calculada al componer el presupuesto"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "elaboracionPresupuestos",
+      "target_mention": "Tarifa",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/presupuestos.ts",
+          "line_start": 109,
+          "line_end": 114,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const material = costeMaterial(solicitud, tarifaVigente());"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "elaboracionPresupuestos",
+      "target_mention": "amortizacionTroquel",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/presupuestos.ts",
+          "line_start": 116,
+          "line_end": 121,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const troquel = amortizacionTroquel(solicitud); // regla de reparto del coste del troquel"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "elaboracionPresupuestos",
+      "target_mention": "acme-erp",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/presupuestos.ts",
+          "line_start": 123,
+          "line_end": 128,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// Módulo comercial del ERP: presupuestos"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "PresupuestoAceptadoEvent",
+      "target_mention": "altaPedido",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/comercial/suscripciones.ts",
+          "line_start": 5,
+          "line_end": 10,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "bus.on(PresupuestoAceptadoEvent, (evento) => altaPedidoDesdePresupuesto(evento.numero));"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "altaTroquel",
+      "target_mention": "Troquel",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/produccion/troqueles.ts",
+          "line_start": 27,
+          "line_end": 32,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "return troqueles.crear({ plano, costeFabricacion: coste, usosAcumulados: 0 });"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "altaTroquel",
+      "target_mention": "acme-erp",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/produccion/troqueles.ts",
+          "line_start": 34,
+          "line_end": 39,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// Registro de troqueles en el módulo de producción del ERP"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "procesoTroquelado",
+      "target_mention": "Troquel",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/produccion/troqueles.ts",
+          "line_start": 41,
+          "line_end": 46,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const troquel = await troqueles.localizar(orden.troquelId); // sin troquel en máquina no hay tirada"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "bloqueoTiradaSinOF",
+      "target_mention": "procesoTroquelado",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/produccion/tiradas.ts",
+          "line_start": 27,
+          "line_end": 32,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (!orden || orden.estado !== 'aprobada') throw new TiradaSinOrdenError(...);"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "bloqueoTiradaSinOF",
+      "target_mention": "OrdenFabricacion",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/produccion/tiradas.ts",
+          "line_start": 34,
+          "line_end": 39,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const orden = await ordenes.porNumero(tirada.ordenNumero);"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "bloqueoTiradaSinOF",
+      "target_mention": "acme-erp",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/produccion/tiradas.ts",
+          "line_start": 41,
+          "line_end": 46,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// Comprobación previa al arranque de tirada en el módulo de producción"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "procesoTroquelado",
+      "target_mention": "TiradaCompletadaEvent",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/produccion/tiradas.ts",
+          "line_start": 48,
+          "line_end": 53,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "emitir(new TiradaCompletadaEvent(orden.numero, recuento.buenas));"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "TiradaCompletadaEvent",
+      "target_mention": "pickingExpedicion",
+      "evidence": {
+        "locator": {
+          "repo": "acme-wms",
+          "path": "src/expedicion/picking.ts",
+          "line_start": 62,
+          "line_end": 67,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "bus.on(TiradaCompletadaEvent, (evento) => colaPicking.encolarSiCompleto(evento.ordenNumero));"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "bloqueoLimiteCredito",
+      "target_mention": "altaPedido",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/credito.ts",
+          "line_start": 49,
+          "line_end": 54,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// El alta rechaza el pedido cuando el riesgo proyectado supera el límite\nif (excedeLimite(cliente, pedido)) throw new CreditoExcedidoError(cliente.id);"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "bloqueoLimiteCredito",
+      "target_mention": "LimiteCredito",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/credito.ts",
+          "line_start": 56,
+          "line_end": 61,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (limite.riesgoActual + pedido.importeTotal > limite.importeMaximo) ..."
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "bloqueoLimiteCredito",
+      "target_mention": "web-pedidos",
+      "evidence": {
+        "locator": {
+          "repo": "web-pedidos",
+          "path": "src/checkout/credito.ts",
+          "line_start": 5,
+          "line_end": 10,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// La web consulta el riesgo vivo antes de confirmar el pedido"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "bloqueoLimiteCredito",
+      "target_mention": "controlLimiteCredito",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/credito.ts",
+          "line_start": 63,
+          "line_end": 68,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const limite = await limites.de(cliente.id); // recalculado por el control de riesgo"
+      }
+    },
+    {
+      "type": "CALCULATES",
+      "source_mention": "recargoInteresDemora",
+      "target_mention": "Factura",
+      "attrs": {
+        "attribute": "interes_demora"
+      },
+      "evidence": {
+        "locator": {
+          "repo": "acme-conta",
+          "path": "src/facturas/demora.ts",
+          "line_start": 16,
+          "line_end": 21,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const recargo = factura.baseImponible * INTERES_DEMORA_MENSUAL * mesesDeRetraso;"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "recargoInteresDemora",
+      "target_mention": "acme-conta",
+      "evidence": {
+        "locator": {
+          "repo": "acme-conta",
+          "path": "src/facturas/demora.ts",
+          "line_start": 23,
+          "line_end": 28,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// El interés se asienta como recargo en la contabilidad"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "FacturaVencidaEvent",
+      "target_mention": "reclamacionImpagos",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/impagos.ts",
+          "line_start": 16,
+          "line_end": 21,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "bus.on(FacturaVencidaEvent, (evento) => reclamarImpago(facturas.porNumero(evento.numero)));"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "escaladoReclamacion",
+      "target_mention": "reclamacionImpagos",
+      "evidence": {
+        "locator": {
+          "repo": "acme-conta",
+          "path": "src/facturas/escalado.ts",
+          "line_start": 16,
+          "line_end": 21,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "if (factura.avisosEnviados >= MAX_AVISOS) escalarAJuridico(factura);"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "escaladoReclamacion",
+      "target_mention": "Factura",
+      "evidence": {
+        "locator": {
+          "repo": "acme-conta",
+          "path": "src/facturas/escalado.ts",
+          "line_start": 23,
+          "line_end": 28,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const vencidas = await facturas.vencidasConAvisos();"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "escaladoReclamacion",
+      "target_mention": "acme-conta",
+      "evidence": {
+        "locator": {
+          "repo": "acme-conta",
+          "path": "src/facturas/escalado.ts",
+          "line_start": 30,
+          "line_end": 35,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// El escalado vive en el software contable, que conoce los avisos enviados"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "UmbralCreditoEvent",
+      "target_mention": "controlLimiteCredito",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/credito.ts",
+          "line_start": 70,
+          "line_end": 75,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "bus.on(UmbralCreditoEvent, (evento) => revisarLimite(evento.clienteId));"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "controlLimiteCredito",
+      "target_mention": "LimiteCredito",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/credito.ts",
+          "line_start": 77,
+          "line_end": 82,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "await limites.actualizar(clienteId, riesgo);"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "controlLimiteCredito",
+      "target_mention": "acme-erp",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/credito.ts",
+          "line_start": 84,
+          "line_end": 89,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// Recalculo de riesgo en el módulo de finanzas del ERP"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "reclamacionImpagos",
+      "target_mention": "Factura",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/impagos.ts",
+          "line_start": 23,
+          "line_end": 28,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const aviso = siguienteAviso(factura); // la reclamación se articula factura a factura"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "reclamacionImpagos",
+      "target_mention": "acme-conta",
+      "evidence": {
+        "locator": {
+          "repo": "acme-conta",
+          "path": "src/facturas/avisos.ts",
+          "line_start": 5,
+          "line_end": 10,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// Los avisos y su histórico se registran en contabilidad"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "Impago de factura",
+      "target_mention": "reclamacionImpagos",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/impagos.ts",
+          "line_start": 30,
+          "line_end": 35,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "bus.on(FacturaVencidaEvent, ...) // el impago arranca el ciclo de reclamación"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "cierreContableMensual",
+      "target_mention": "facturacionMensual",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/cierre.ts",
+          "line_start": 16,
+          "line_end": 21,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "conciliar(facturasDe(mes), abonosDe(mes)); // requiere la facturación del mes cerrada"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "cierreContableMensual",
+      "target_mention": "Abono",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/cierre.ts",
+          "line_start": 23,
+          "line_end": 28,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "const abonos = abonosDe(mes); // los abonos entran en la conciliación"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "cierreContableMensual",
+      "target_mention": "acme-conta",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/cierre.ts",
+          "line_start": 30,
+          "line_end": 35,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "return traspasarAContabilidad(mes);"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "emisionAbonos",
+      "target_mention": "Factura",
+      "evidence": {
+        "locator": {
+          "repo": "acme-erp",
+          "path": "src/finanzas/abonos.ts",
+          "line_start": 27,
+          "line_end": 32,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "return abonos.emitir({ facturaOrigen: factura.numero, importe, motivo });"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "emisionAbonos",
+      "target_mention": "acme-conta",
+      "evidence": {
+        "locator": {
+          "repo": "acme-conta",
+          "path": "src/facturas/abonos.ts",
+          "line_start": 5,
+          "line_end": 10,
+          "commit": "e5f6a7b"
+        },
+        "excerpt": "// El abono genera su asiento rectificativo en contabilidad"
+      }
+    }
+  ]
+}

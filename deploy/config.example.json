@@ -1,0 +1,13 @@
+{
+  "mode": "stateful",
+  "publicUrl": "https://untacit.example.com",
+  "host": "0.0.0.0",
+  "port": 8787,
+  "graphs": [
+    { "id": "acme", "name": "ACME Manufactura", "path": "/graphs/acme" }
+  ],
+  "auth": { "accessTokenTtlSeconds": 3600, "refreshTokenTtlSeconds": 2592000 },
+  "session": { "idleTimeoutMinutes": 30, "maxSessionsPerUser": 20 },
+  "embeddings": { "refresh": "auto" },
+  "security": { "allowedHosts": [], "allowedOrigins": [], "trustProxy": true }
+}

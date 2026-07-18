@@ -1,0 +1,240 @@
+/*
+ * Untacit Design System — tokens.
+ * Ported from the claude.ai/design project "Untacit Design System"
+ * (tokens/colors.css, typography.css, spacing.css, effects.css, base.css).
+ * Fonts (Archivo + IBM Plex Mono) load via <link> in index.html; system
+ * fallbacks apply offline (the source DS ships no font binaries).
+ */
+
+:root {
+  /* ---- Fondos ---- */
+  --bg-page: #05070c;
+  --bg-section-alt: #070a11;
+  --bg-terminal: #080c14;
+  --bg-canvas-glass: rgba(9, 12, 19, 0.72);
+  --bg-nav-glass: rgba(13, 17, 27, 0.55);
+  --bg-nav-glass-scrolled: rgba(10, 14, 22, 0.85);
+  --bg-callout-glass: rgba(16, 21, 31, 0.75);
+
+  /* ---- Azul primario (rampa) ---- */
+  --blue-700: #1d56e4;
+  --blue-600: #2e63f0;
+  --blue-500: #4479ff;
+  --blue-400: #5b8dff;
+  --blue-350: #679cff;
+  --blue-300: #8fb2ff;
+  --blue-200: #c7d8ff;
+
+  /* ---- Acentos ---- */
+  --cyan: #2ec5ff;
+  --cyan-bright: #7fe0ff;
+  --amber: #ffb020;
+  --amber-light: #ffd27a;
+  --teal: #29d3b8;
+  --violet: #9b8aff;
+
+  /* ---- Paleta de nodos (ontología: 7 tipos) ---- */
+  --node-regla: #5b8dff;
+  --node-proceso: #2ec5ff;
+  --node-politica: #9b8aff;
+  --node-sistema: #29d3b8;
+  --node-rol: #c9d6f2;
+  --node-entidad: #3d6be0;
+  --node-decision: #7fe0ff;
+
+  /* ---- Texto ---- */
+  --text-heading: #f2f5fb;
+  --text-heading-card: #e8edf6;
+  --text-heading-card-bright: #f0f4fc;
+  --text-white: #ffffff;
+  --text-body: #94a2bc;
+  --text-body-strong: #a9b6cc;
+  --text-body-card: #9aa8c2;
+  --text-nav: #a7b4ca;
+  --text-muted: #7c90b4;
+  --text-mono-dim: #6e82a6;
+  --text-faint: #5c6a83;
+  --text-faintest: #4e5c74;
+  --text-code: #e7effc;
+  --text-code-str: #bfe3ff;
+  --text-code-key: #8fb0ff;
+  --text-code-punct: #8fa5cc;
+
+  /* ---- Bordes ---- */
+  --border-glass: rgba(163, 186, 242, 0.16);
+  --border-glass-soft: rgba(163, 186, 242, 0.14);
+  --border-glass-mid: rgba(163, 186, 242, 0.15);
+  --border-glass-strong: rgba(163, 186, 242, 0.22);
+  --border-glass-hover: rgba(163, 186, 242, 0.38);
+  --border-hairline: rgba(148, 168, 215, 0.07);
+  --border-hairline-2: rgba(148, 168, 215, 0.09);
+  --border-row: rgba(148, 168, 215, 0.1);
+  --border-row-strong: rgba(148, 168, 215, 0.12);
+  --border-inner: rgba(163, 186, 242, 0.11);
+
+  /* ---- Semánticos ---- */
+  --accent: var(--blue-400);
+  --accent-heading: var(--blue-350);
+  --link: var(--blue-300);
+  --link-hover: var(--blue-200);
+  --selection-bg: var(--blue-700);
+  --prompt: var(--cyan);
+  --conflict: var(--amber);
+  --surface-page: var(--bg-page);
+  --surface-alt: var(--bg-section-alt);
+
+  /* ---- Tipografía ---- */
+  --font-sans: 'Archivo', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --text-hero: clamp(58px, 8.4vw, 126px);
+  --text-h2: clamp(32px, 3.6vw, 52px);
+  --text-h3-feature: 23px;
+  --text-h3-card: 19.5px;
+  --text-h3-row: 20px;
+  --text-body-base: 17px;
+  --text-lead: 20px;
+  --text-sublead: 18px;
+  --text-card-body: 16px;
+  --text-row-body: 16.5px;
+  --text-kicker: 12.5px;
+  --text-eyebrow: 11.5px;
+  --text-code-size: 14px;
+  --text-code-sm: 13px;
+  --text-chip: 12px;
+  --text-meta: 10.5px;
+  --weight-hero: 780;
+  --weight-h2: 760;
+  --weight-h3: 650;
+  --weight-feature: 700;
+  --weight-semibold: 600;
+  --weight-medium: 500;
+  --tracking-hero: -0.05em;
+  --tracking-h2: -0.04em;
+  --tracking-h3: -0.015em;
+  --tracking-eyebrow: 0.18em;
+  --tracking-label: 0.16em;
+  --leading-hero: 0.97;
+  --leading-h2: 1.06;
+  --leading-body: 1.6;
+  --leading-card: 1.62;
+  --leading-code: 2.15;
+
+  /* ---- Espaciado ---- */
+  --container-wide: 1200px;
+  --container-mid: 1080px;
+  --container-narrow: 760px;
+  --gutter: 32px;
+
+  /* ---- Radios ---- */
+  --radius-pill: 999px;
+  --radius-card-lg: 24px;
+  --radius-card: 22px;
+  --radius-terminal: 18px;
+  --radius-callout: 14px;
+  --radius-tile: 9px;
+  --radius-tile-sm: 8px;
+
+  /* ---- Sombras ---- */
+  --bevel-top: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 24px 60px rgba(0, 0, 0, 0.4);
+  --shadow-card-lg: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 30px 70px rgba(0, 0, 0, 0.45);
+  --shadow-card-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 32px 80px rgba(0, 0, 0, 0.55),
+    0 0 44px rgba(46, 99, 240, 0.14);
+  --shadow-terminal: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 34px 80px rgba(0, 0, 0, 0.5);
+  --shadow-nav: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 16px 50px rgba(0, 0, 0, 0.45);
+  --shadow-btn:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -1px 0 rgba(0, 0, 0, 0.2),
+    0 12px 34px rgba(29, 86, 228, 0.45);
+  --shadow-btn-hover: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 18px 48px rgba(29, 86, 228, 0.6);
+  --shadow-tile: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 4px 14px rgba(29, 86, 228, 0.4);
+
+  /* ---- Gradientes ---- */
+  --grad-btn: linear-gradient(180deg, #4479ff, #1d56e4);
+  --grad-btn-hover: linear-gradient(180deg, #5486ff, #2e63f0);
+  --grad-tile: linear-gradient(135deg, #1d56e4, #5b8dff);
+  --grad-card-glass: linear-gradient(
+    165deg,
+    rgba(148, 178, 255, 0.08),
+    rgba(148, 178, 255, 0.018) 45%,
+    rgba(148, 178, 255, 0.045)
+  );
+  --grad-card-glass-lg: linear-gradient(
+    165deg,
+    rgba(148, 178, 255, 0.07),
+    rgba(148, 178, 255, 0.015) 45%,
+    rgba(148, 178, 255, 0.04)
+  );
+  --grad-sheen: radial-gradient(120% 60% at 50% -12%, rgba(255, 255, 255, 0.07), transparent 55%);
+  --glow-halo: radial-gradient(closest-side, rgba(29, 86, 228, 0.14), transparent 70%);
+
+  /* ---- Blur ---- */
+  --blur-glass: blur(26px) saturate(1.6);
+  --blur-glass-card: blur(24px) saturate(1.6);
+  --blur-nav: blur(26px) saturate(1.7);
+
+  /* ---- Motion ---- */
+  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-color: 0.25s;
+  --dur-move: 0.35s;
+  --dur-row: 0.4s;
+  --dur-reveal: 0.85s;
+
+  /* ---- Fondos decorativos ---- */
+  --dot-grid: radial-gradient(rgba(148, 170, 220, 0.09) 1px, transparent 1.4px);
+  --dot-grid-size: 22px 22px;
+  --noise-svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+
+  /*
+   * Adaptación de escala para la app de escritorio: la fuente del sistema es
+   * la landing (cuerpo 17px); una superficie densa de datos baja un escalón
+   * manteniendo familia, color y ritmo.
+   */
+  --app-text-base: 14px;
+
+  /* Receta translúcida del ámbar de conflicto (una sola definición). */
+  --conflict-border: rgba(255, 176, 32, 0.4);
+  --conflict-bg: rgba(255, 176, 32, 0.07);
+  --conflict-bg-faint: rgba(255, 176, 32, 0.04);
+
+  /*
+   * Errores de la app (sidecar caído, ref inválida). El ámbar queda reservado
+   * a conflictos del grafo; el rojo sale del semáforo del terminal (#FF5F57),
+   * el único rojo del sistema.
+   */
+  --danger: #ff5f57;
+  --danger-light: #ff9e99;
+  --danger-border: rgba(255, 95, 87, 0.4);
+  --danger-bg: rgba(255, 95, 87, 0.07);
+}
+
+@keyframes omGlow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes omFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-9px);
+  }
+}
+
+@keyframes omBlink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}

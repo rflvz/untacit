@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false,
+    "types": ["vite/client"],
+    // The frontend only ever imports *types* from core (erased at build time),
+    // so it maps the package to types.ts directly: no dist/ needed, and the
+    // browser bundle can never accidentally pull in core's Node runtime.
+    "paths": {
+      "@untacit/core": ["../core/src/types.ts"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
+}

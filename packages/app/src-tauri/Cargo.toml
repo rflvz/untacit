@@ -1,0 +1,11 @@
+[package]
+name = "untacit-app"
+version = "0.1.0"
+description = "untacit desktop shell (Tauri 2): window + Node sidecar lifecycle (docs/03 §7)."
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }

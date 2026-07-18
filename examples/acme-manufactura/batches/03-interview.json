@@ -1,0 +1,271 @@
+{
+  "run_id": "2026-07-03T16-00-00-interview",
+  "source_type": "interview",
+  "extractor": {
+    "name": "extractor-interview",
+    "model": "claude-sonnet-5",
+    "prompt_version": "interview-v1"
+  },
+  "nodes": [
+    {
+      "mention": "clientes",
+      "type": "entity",
+      "name": "Cliente",
+      "description": "Empresa o particular que compra embalaje de cartón a Acme.",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 4 },
+        "excerpt": "Con los clientes nuevos nos quemamos mucho hace años con los impagos, por eso somos tan estrictos.",
+        "validated_by": "administracion"
+      }
+    },
+    {
+      "mention": "pedidos",
+      "type": "entity",
+      "name": "Pedido",
+      "description": "Solicitud de compra de un cliente con una o más líneas de producto.",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 6 },
+        "excerpt": "Los pedidos entran casi todos por la web; los que llegan por teléfono los mete el comercial a mano."
+      }
+    },
+    {
+      "mention": "Facturas",
+      "type": "entity",
+      "name": "Factura",
+      "description": "Documento de cobro emitido al cliente por los pedidos servidos.",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 12 },
+        "excerpt": "Las facturas salen agrupadas por cliente a primeros de mes; antes de emitirlas repaso los albaranes uno a uno."
+      }
+    },
+    {
+      "mention": "alta de pedido",
+      "type": "process",
+      "name": "Alta de pedido",
+      "description": "Registro y verificación de un pedido nuevo antes de pasarlo a producción.",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 7 },
+        "excerpt": "Cuando entra un pedido de un cliente nuevo, la web no lo deja pasar hasta que yo confirmo que el pago está registrado.",
+        "validated_by": "administracion"
+      }
+    },
+    {
+      "mention": "Facturación mensual",
+      "type": "process",
+      "name": "Facturación mensual",
+      "description": "Emisión de facturas a fin de mes por los pedidos expedidos.",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 11 },
+        "excerpt": "La facturación mensual la hago yo entera: reviso albaranes, agrupo por cliente y emito dentro de la primera semana.",
+        "validated_by": "administracion"
+      }
+    },
+    {
+      "mention": "Revisión manual de pedidos altos",
+      "type": "process",
+      "name": "Revisión manual de pedidos altos",
+      "description": "Revisión caso a caso, por gerencia, de los pedidos que requieren aprobación.",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 15 },
+        "excerpt": "Los pedidos grandes van a una bandeja que revisa gerencia en persona; hasta que no los aprueba no siguen su curso.",
+        "validated_by": "administracion"
+      }
+    },
+    {
+      "mention": "Bloqueo de pedido sin prepago",
+      "type": "rule",
+      "name": "Bloqueo de pedido sin prepago",
+      "description": "Se rechaza el pedido de un cliente nuevo sin pago registrado.",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 7 },
+        "excerpt": "Sí, eso funciona así seguro: cliente nuevo sin pago por adelantado, pedido bloqueado. No hay excepciones.",
+        "validated_by": "administracion"
+      }
+    },
+    {
+      "mention": "Aprobación de gerencia para pedidos altos",
+      "type": "rule",
+      "name": "Aprobación de gerencia para pedidos altos",
+      "description": "Los pedidos que superan el umbral requieren aprobación de gerencia.",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 15 },
+        "excerpt": "Yo diría que la aprobación es por importe, a partir de diez mil euros, pero el manual nuevo dice otra cosa; ahí hay lío."
+      }
+    },
+    {
+      "mention": "Recargo por pedido urgente",
+      "type": "rule",
+      "name": "Recargo por pedido urgente",
+      "description": "Recargo aplicado a pedidos con plazo de entrega urgente.",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 18 },
+        "excerpt": "El recargo del 15% a urgentes se quitó en 2024; ahora lo negocia el comercial caso a caso. Si la web lo sigue cobrando, está mal.",
+        "validated_by": "administracion"
+      }
+    },
+    {
+      "mention": "Pago anticipado a clientes nuevos",
+      "type": "policy",
+      "name": "Pago anticipado a clientes nuevos",
+      "description": "No se sirve mercancía a clientes nuevos sin pago anticipado, por el histórico de impagos.",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 5 },
+        "excerpt": "La norma del pago anticipado viene de gerencia desde los impagos de 2019; se aplica a todo cliente nuevo sin excepción.",
+        "validated_by": "administracion"
+      }
+    },
+    {
+      "mention": "Gerencia",
+      "type": "role",
+      "name": "Gerencia",
+      "description": "Dirección de la empresa: aprueba pedidos altos y fija las políticas comerciales.",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 15 },
+        "excerpt": "Gerencia revisa personalmente los pedidos grandes y es quien decide las normas de pago.",
+        "validated_by": "administracion"
+      }
+    },
+    {
+      "mention": "Administración",
+      "type": "role",
+      "name": "Administración",
+      "description": "Rol responsable de facturación, cobros y reclamaciones.",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 2 },
+        "excerpt": "En administración llevamos la facturación, los cobros y las reclamaciones de los clientes."
+      }
+    },
+    {
+      "mention": "Impago de factura",
+      "type": "event",
+      "name": "Impago de factura",
+      "description": "Vencimiento de una factura sin pago registrado.",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 20 },
+        "excerpt": "Cuando una factura vence sin pagar, salta el aviso y ese cliente pasa a revisión antes de aceptarle nada más.",
+        "validated_by": "administracion"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "type": "VALIDATES",
+      "source_mention": "Bloqueo de pedido sin prepago",
+      "target_mention": "alta de pedido",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 7 },
+        "excerpt": "Cliente nuevo sin pago registrado: el alta de pedido se queda bloqueada. Lo confirmo, lo veo todas las semanas.",
+        "validated_by": "administracion"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "Bloqueo de pedido sin prepago",
+      "target_mention": "clientes",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 7 },
+        "excerpt": "El bloqueo mira si el cliente es nuevo y si tiene pago registrado; con clientes antiguos no aplica.",
+        "validated_by": "administracion"
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Pago anticipado a clientes nuevos",
+      "target_mention": "Bloqueo de pedido sin prepago",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 5 },
+        "excerpt": "El bloqueo de la web existe precisamente por la norma del pago anticipado; una cosa es consecuencia de la otra.",
+        "validated_by": "administracion"
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Administración",
+      "target_mention": "Facturación mensual",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 11 },
+        "excerpt": "La facturación mensual es tarea mía, de administración; nadie más la toca.",
+        "validated_by": "administracion"
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Gerencia",
+      "target_mention": "Revisión manual de pedidos altos",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 15 },
+        "excerpt": "Esa revisión la hace gerencia en persona, nadie puede aprobar por ellos.",
+        "validated_by": "administracion"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Aprobación de gerencia para pedidos altos",
+      "target_mention": "Revisión manual de pedidos altos",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 16 },
+        "excerpt": "Si gerencia no hace la revisión, los pedidos altos se quedan parados aunque el sistema los tenga registrados.",
+        "validated_by": "administracion"
+      }
+    },
+    {
+      "type": "PART_OF",
+      "source_mention": "Revisión manual de pedidos altos",
+      "target_mention": "alta de pedido",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 16 },
+        "excerpt": "La revisión de gerencia es un paso más del alta cuando el pedido es grande; sin ese paso el alta no se completa.",
+        "validated_by": "administracion"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Aprobación de gerencia para pedidos altos",
+      "target_mention": "pedidos",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 15 },
+        "excerpt": "Los pedidos grandes no siguen sin el visto bueno de gerencia, eso seguro; lo que no tengo claro es el criterio exacto."
+      }
+    },
+    {
+      "type": "CALCULATES",
+      "source_mention": "Recargo por pedido urgente",
+      "target_mention": "pedidos",
+      "stance": "contradicts",
+      "attrs": { "attribute": "recargo_urgente" },
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 18 },
+        "excerpt": "Ese recargo ya no existe: se eliminó en 2024. Si el código lo sigue aplicando, estamos cobrando de más.",
+        "validated_by": "administracion"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "Impago de factura",
+      "target_mention": "Revisión manual de pedidos altos",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 20 },
+        "excerpt": "Un impago manda al cliente directo a revisión manual: su siguiente pedido lo mira gerencia aunque sea pequeño.",
+        "validated_by": "administracion"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Facturación mensual",
+      "target_mention": "Facturas",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 12 },
+        "excerpt": "Sin las facturas emitidas y cuadradas no puedo cerrar el mes."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Facturación mensual",
+      "target_mention": "pedidos",
+      "evidence": {
+        "locator": { "interview_id": "int-001", "speaker_role": "administracion", "turn": 12 },
+        "excerpt": "Facturo lo que se ha servido: cada línea de factura sale de un pedido expedido ese mes."
+      }
+    }
+  ]
+}

@@ -1,0 +1,522 @@
+{
+  "run_id": "2026-07-12T11-00-00-interview-produccion",
+  "source_type": "interview",
+  "schema_version": 1,
+  "extractor": {
+    "name": "extractor-interview",
+    "model": "claude-sonnet-5",
+    "prompt_version": "interview-v1"
+  },
+  "nodes": [
+    {
+      "mention": "la troqueladora",
+      "type": "entity",
+      "name": "Troqueladora",
+      "description": "Máquina de troquelado plano de la planta.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 4
+        },
+        "excerpt": "La troqueladora es el cuello de botella de la planta: si para, para todo lo demás.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "mention": "cambio de troquel",
+      "type": "process",
+      "name": "Cambio de troquel",
+      "description": "Sustitución y ajuste del troquel entre tiradas.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 6
+        },
+        "excerpt": "En un cambio de troquel se nos van veinte minutos si todo está en su sitio; si falta el troquel, una hora.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "mention": "mantenimiento preventivo",
+      "type": "process",
+      "name": "Mantenimiento preventivo",
+      "description": "Intervenciones planificadas de mantenimiento.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 8
+        },
+        "excerpt": "El preventivo está muy bien sobre el papel; la realidad es que la máquina para cuando la producción lo permite."
+      }
+    },
+    {
+      "mention": "el FIFO de bobinas",
+      "type": "rule",
+      "name": "FIFO de bobinas por antigüedad",
+      "description": "Consumo de bobinas por orden de entrada.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 10
+        },
+        "excerpt": "Lo del FIFO va a misa: el SGA no te deja confirmar la tirada si coges una bobina más nueva.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "mention": "el muestreo de cinco cajas",
+      "type": "rule",
+      "name": "Muestreo mínimo por tirada",
+      "description": "Control mínimo de cinco cajas por tirada.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 12
+        },
+        "excerpt": "Las cinco cajas se sacan siempre: primera, última y tres del medio. Eso no se lo salta nadie.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "mention": "la parada de las 400 horas",
+      "type": "rule",
+      "name": "Parada por horas de uso de troqueladora",
+      "description": "Parada preventiva por contador de horas.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 14
+        },
+        "excerpt": "La parada de las 400 horas… digamos que el contador a veces \"espera\" a que acabe la campaña."
+      }
+    },
+    {
+      "mention": "el técnico de mantenimiento",
+      "type": "role",
+      "name": "Técnico de mantenimiento",
+      "description": "Técnico que ejecuta preventivos y repara averías.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 16
+        },
+        "excerpt": "El técnico firma todos los partes y sin su firma la máquina no arranca; en eso somos estrictos.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "mention": "los operarios de troquelado",
+      "type": "role",
+      "name": "Operario de troquelado",
+      "description": "Operarios de la sección de troquelado.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 18
+        },
+        "excerpt": "Cada operario lleva su máquina, hace sus cambios de troquel y saca sus muestras.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "mention": "no conformidades",
+      "type": "entity",
+      "name": "No conformidad",
+      "description": "Registros de incumplimientos de calidad.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 20
+        },
+        "excerpt": "Las no conformidades nos las tomamos en serio desde la auditoría de 2024: todo queda registrado."
+      }
+    },
+    {
+      "mention": "el control de calidad de tirada",
+      "type": "process",
+      "name": "Control de calidad de tirada",
+      "description": "Inspección por muestreo de cada tirada.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 22
+        },
+        "excerpt": "El control de tirada lo hace el propio operario y lo revisa calidad; sin ese registro la tirada no sale.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "mention": "Prioridad de picking para urgentes",
+      "type": "rule",
+      "name": "Prioridad de picking para urgentes",
+      "description": "Los pedidos urgentes se preparan antes en picking.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 52
+        },
+        "excerpt": "Los urgentes van delante en el almacén, igual que en máquina.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "mention": "Picking de expedición",
+      "type": "process",
+      "name": "Picking de expedición",
+      "description": "Preparación de palets para carga.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 54
+        },
+        "excerpt": "El picking se lo lanza el sistema a almacén en cuanto la tirada está cerrada.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "mention": "Descanso mínimo entre turnos",
+      "type": "rule",
+      "name": "Descanso mínimo entre turnos",
+      "description": "Descanso mínimo de 12 horas entre turnos.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 56
+        },
+        "excerpt": "Entre turno y turno tienes tus doce horas sí o sí.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "mention": "Cuadrante de turnos",
+      "type": "process",
+      "name": "Cuadrante de turnos",
+      "description": "Asignación mensual de operarios a turnos.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 58
+        },
+        "excerpt": "El cuadrante sale antes del 25 y ya sabes tu mes entero.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "mention": "Tirada completada",
+      "type": "event",
+      "name": "Tirada completada",
+      "description": "Fin de una tirada con su recuento.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 60
+        },
+        "excerpt": "Cierro la tirada con las cajas buenas y la merma, y ahí acaba lo mío.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "mention": "Bloqueo de tirada sin orden de fabricación",
+      "type": "rule",
+      "name": "Bloqueo de tirada sin orden de fabricación",
+      "description": "No hay tirada sin orden de fabricación aprobada.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 62
+        },
+        "excerpt": "Sin orden aprobada no hay tirada, eso el sistema lo bloquea.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "mention": "Troquelado",
+      "type": "process",
+      "name": "Troquelado",
+      "description": "Tiradas de corte con troquel.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 64
+        },
+        "excerpt": "El troquelado es lo nuestro: cambio, tirada, muestras y cierre.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "mention": "Troquel",
+      "type": "entity",
+      "name": "Troquel",
+      "description": "Herramienta de corte de cada trabajo.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 66
+        },
+        "excerpt": "Cada trabajo tiene su troquel y cada troquel su ubicación en el almacén de troqueles.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "mention": "No conformidad abierta",
+      "type": "event",
+      "name": "No conformidad abierta",
+      "description": "Apertura de una no conformidad.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 68
+        },
+        "excerpt": "El aviso de la no conformidad te llega al momento, con su número y su tirada.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "mention": "Gestión de no conformidades",
+      "type": "process",
+      "name": "Gestión de no conformidades",
+      "description": "Ciclo de análisis y cierre de no conformidades.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 70
+        },
+        "excerpt": "Lo de las no conformidades va con plazos: causa, acción y cierre firmado por calidad.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "mention": "Rechazo por delaminación",
+      "type": "rule",
+      "name": "Rechazo por delaminación",
+      "description": "Rechazo de unidades con delaminación.",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 72
+        },
+        "excerpt": "Caja que delamina, caja que se aparta; y si hay varias, se para la tirada.",
+        "validated_by": "produccion"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "type": "VALIDATES",
+      "source_mention": "el FIFO de bobinas",
+      "target_mention": "Troquelado",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 24
+        },
+        "excerpt": "Confirmo el FIFO: la tirada no arranca con una bobina que no sea la más antigua del gramaje. Lo veo cada día.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "el técnico de mantenimiento",
+      "target_mention": "mantenimiento preventivo",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 26
+        },
+        "excerpt": "Los preventivos los hace siempre el técnico de mantenimiento; los operarios solo engrasamos lo básico.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "la parada de las 400 horas",
+      "target_mention": "mantenimiento preventivo",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 28
+        },
+        "excerpt": "Se supone que a las 400 horas se para, pero llevamos meses estirándolo cuando hay campaña; el contador se \"congela\" y se para cuando se puede.",
+        "validated_by": "produccion"
+      },
+      "stance": "contradicts"
+    },
+    {
+      "type": "PART_OF",
+      "source_mention": "cambio de troquel",
+      "target_mention": "Troquelado",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 30
+        },
+        "excerpt": "El cambio de troquel es parte de la tirada: sin cambio hecho y primera caja validada no hay tirada.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "el muestreo de cinco cajas",
+      "target_mention": "el control de calidad de tirada",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 32
+        },
+        "excerpt": "El muestreo de las cinco cajas se cumple siempre; es lo primero que mira calidad en la auditoría.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "los operarios de troquelado",
+      "target_mention": "Troquelado",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 34
+        },
+        "excerpt": "Las tiradas las llevamos los operarios de troquelado, uno por máquina y turno.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Prioridad de picking para urgentes",
+      "target_mention": "Picking de expedición",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 36
+        },
+        "excerpt": "Los urgentes pasan delante en el picking, eso se cumple a rajatabla porque lo fuerza el SGA.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Descanso mínimo entre turnos",
+      "target_mention": "Cuadrante de turnos",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 38
+        },
+        "excerpt": "El cuadrante nunca te pone dos turnos sin las doce horas de descanso; RRHH lo tiene bloqueado en el sistema.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "Tirada completada",
+      "target_mention": "Picking de expedición",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 40
+        },
+        "excerpt": "En cuanto cierro la tirada en el sistema, a los de almacén les aparece el picking del pedido.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Bloqueo de tirada sin orden de fabricación",
+      "target_mention": "Troquelado",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 42
+        },
+        "excerpt": "Sin orden de fabricación aprobada la troqueladora ni se arranca; el sistema no te deja meter la tirada.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Troquelado",
+      "target_mention": "la troqueladora",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 44
+        },
+        "excerpt": "Todo el troquelado pasa por esa máquina; cuando ha estado averiada hemos tenido que subcontratar.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "cambio de troquel",
+      "target_mention": "Troquel",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 46
+        },
+        "excerpt": "El cambio depende de que el troquel esté en su ubicación; si no aparece, la máquina espera."
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "No conformidad abierta",
+      "target_mention": "Gestión de no conformidades",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 48
+        },
+        "excerpt": "Cuando se abre una no conformidad nos llega el aviso y hay que buscar la causa; eso funciona desde 2024.",
+        "validated_by": "produccion"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Rechazo por delaminación",
+      "target_mention": "el control de calidad de tirada",
+      "evidence": {
+        "locator": {
+          "interview_id": "int-002",
+          "speaker_role": "produccion",
+          "turn": 50
+        },
+        "excerpt": "Si una caja delamina, la tirada se para y se revisa el lote entero; eso es sagrado.",
+        "validated_by": "produccion"
+      }
+    }
+  ]
+}

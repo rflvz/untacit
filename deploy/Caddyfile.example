@@ -1,0 +1,10 @@
+# Caddy in front of untacit-server (docker-compose profile "with-tls").
+# Copy to ./Caddyfile and set your domain — TLS certificates are automatic.
+#
+# Remember, in data/untacit-server.config.json:
+#   "publicUrl": "https://untacit.example.com"
+#   "security": { "trustProxy": true }
+
+untacit.example.com {
+	reverse_proxy untacit:8787
+}

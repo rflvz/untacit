@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm version comes from package.json "packageManager"
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+      - name: Verify synthetic dataset end-to-end
+        run: node examples/acme-manufactura/check.mjs
+
+      - name: Verify the 10 Fase 5 evals against the MCP server
+        run: node examples/acme-manufactura/evals/run.mjs
+
+  # Fase 7 (docs/06 §8.1): the self-hosted image must keep building — native
+  # deps (better-sqlite3, onnxruntime) plus the pre-seeded model layer are the
+  # risky part, so the full (non-SLIM) variant is what CI smokes.
+  docker-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build untacit-server image
+        run: docker build -f deploy/Dockerfile -t untacit-server .
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Prepare a fixture graph with the synthetic dataset
+        run: |
+          set -eux
+          pnpm install --frozen-lockfile
+          pnpm --filter "@untacit/cli..." build
+          mkdir -p smoke/data smoke/graphs
+          node packages/cli/dist/bin.js init smoke/graphs/acme
+          for b in examples/acme-manufactura/batches/*.json; do
+            node packages/cli/dist/bin.js import "$b" --graph smoke/graphs/acme
+          done
+          cat > smoke/data/untacit-server.config.json <<'EOF'
+          {
+            "publicUrl": "http://127.0.0.1:8787",
+            "graphs": [{ "id": "acme", "path": "/graphs/acme" }]
+          }
+          EOF
+          # The container runs as its own non-root user; it must be able to
+          # write /data (server.db) and <graph>/.untacit (derived index).
+          chmod -R a+rwX smoke
+
+      - name: Smoke the container (healthz + pre-seeded model)
+        run: |
+          set -eux
+          docker run -d --name untacit -p 8787:8787 \
+            -v "$PWD/smoke/data:/data" -v "$PWD/smoke/graphs:/graphs" untacit-server
+
+          # Dump the container's own logs + state on ANY failure — otherwise a
+          # startup crash just looks like "connection refused" with no cause.
+          dump() {
+            echo "::group::container state"; docker ps -a --filter name=untacit; echo "::endgroup::"
+            echo "::group::container logs"; docker logs untacit 2>&1 || true; echo "::endgroup::"
+            echo "::group::inspect state"; docker inspect -f '{{json .State}}' untacit || true; echo "::endgroup::"
+          }
+          trap dump EXIT
+
+          ok=""
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/healthz; then ok=1; break; fi
+            # A crashed container never recovers — stop waiting and let the trap
+            # surface the logs immediately instead of polling a dead port.
+            if [ -z "$(docker ps -q --filter name=untacit)" ]; then
+              echo "container exited before serving healthz"; break
+            fi
+            sleep 2
+          done
+          [ -n "$ok" ] || { echo "healthz never came up"; exit 1; }
+          curl -fsS http://127.0.0.1:8787/healthz | grep '"status":"ok"'
+
+          # The standard image ships the semantic channel: the model must load
+          # from the pre-seeded cache, without downloading anything.
+          docker exec untacit node --input-type=module -e '
+            const { env, pipeline } = await import("@huggingface/transformers");
+            env.allowRemoteModels = false;
+            await pipeline("feature-extraction", "Xenova/multilingual-e5-small");
+            console.log("embedding model loads air-gapped from the image");
+          '
+          trap - EXIT
+          docker logs untacit
+          docker rm -f untacit

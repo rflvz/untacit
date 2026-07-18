@@ -1,0 +1,46 @@
+#!/bin/sh
+# untacit — example post-merge hook for partial re-extraction (docs/03 §5).
+#
+# Lives in a SOURCE repo (.git/hooks/post-merge). After every merge (including
+# `git pull`), it re-runs extractor-code ONLY over the paths the merge changed
+# and commits the resulting run on its own branch of the graph repo, ready to
+# push and review as a pull request (extraction-as-PR).
+#
+# Install:
+#   cp examples/hooks/post-merge <source-repo>/.git/hooks/post-merge
+#   chmod +x <source-repo>/.git/hooks/post-merge
+#
+# Configure via environment (e.g. in your shell profile or a hook wrapper):
+#   UNTACIT_GRAPH  path to the graph repo (required)
+#   UNTACIT_BIN    untacit executable (default: "untacit" on PATH)
+#
+# Each re-extraction costs LLM calls — this hook is the on-demand alternative
+# to a permanent file-watcher, which v1 deliberately does not have.
+
+set -e
+
+GRAPH="${UNTACIT_GRAPH:?set UNTACIT_GRAPH to the graph repo directory}"
+UNTACIT="${UNTACIT_BIN:-untacit}"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# Paths the merge changed (ORIG_HEAD = HEAD before the merge), restricted to
+# source-code extensions. Deleted files are fine: the scanner skips them, and
+# edges whose only evidence pointed to a removed fragment surface as stale
+# graph state to review — they are never silently dropped.
+CHANGED=$(git -C "$REPO_ROOT" diff --name-only ORIG_HEAD HEAD -- \
+  '*.ts' '*.tsx' '*.js' '*.jsx' '*.py' '*.java' '*.cs' '*.go' '*.rb' '*.php')
+
+if [ -z "$CHANGED" ]; then
+  exit 0
+fi
+
+echo "untacit: re-extracting $(printf '%s\n' "$CHANGED" | wc -l) changed path(s)…"
+
+# NOTE: word-splitting on $CHANGED — paths with whitespace would need xargs -0;
+# kept simple on purpose for an example hook.
+# shellcheck disable=SC2086
+"$UNTACIT" extract code "$REPO_ROOT" \
+  --paths $CHANGED \
+  --import --graph "$GRAPH" --branch
+
+echo "untacit: run committed on its own branch of $GRAPH — push it and open a PR to review the drift."

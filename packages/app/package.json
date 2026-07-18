@@ -1,0 +1,38 @@
+{
+  "name": "@untacit/app",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "description": "untacit desktop app: Tauri 2 shell + React frontend + Node sidecar exposing the core over a local HTTP API",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n sidecar,vite -c blue,green \"tsx watch --tsconfig tsconfig.sidecar.json sidecar/server.ts\" \"vite\"",
+    "sidecar": "tsx --tsconfig tsconfig.sidecar.json sidecar/server.ts",
+    "bundle:sidecar": "esbuild sidecar/server.ts --bundle --platform=node --format=esm --external:@untacit/core --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\" --outfile=sidecar/dist/server.mjs",
+    "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.sidecar.json --noEmit && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.sidecar.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@untacit/core": "workspace:*",
+    "@untacit/extractors": "workspace:*",
+    "@hono/node-server": "^1.13.7",
+    "graphology": "^0.25.4",
+    "graphology-layout-forceatlas2": "^0.10.1",
+    "hono": "^4.6.14",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "sigma": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0"
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "description": "10 preguntas read-only sobre el grafo de Acme Manufactura, con respuesta única verificable. Gate de la Fase 5: un agente conectado solo al MCP de untacit (sin acceso a las fuentes) debe responder correctamente >= 8/10. Cada eval se comprueba de forma determinista con run.mjs (llamadas MCP reales, sin LLM).",
+  "graph": "importar examples/acme-manufactura/batches/*.json en orden (los seis batches)",
+  "evals": [
+    {
+      "id": "eval-01",
+      "question": "¿Qué regla impide dar de alta el pedido de un cliente nuevo sin pago registrado, y en qué sistema está implementada?",
+      "expected_answer": "La regla 'Bloqueo de pedido sin prepago' (rule-bloqueo-de-pedido-sin-prepago), implementada en la web de pedidos (system-web-de-pedidos).",
+      "verification": "untacit_context('prepago') -> nodo rule-bloqueo-de-pedido-sin-prepago; su arista IMPLEMENTED_IN apunta a system/system-web-de-pedidos."
+    },
+    {
+      "id": "eval-02",
+      "question": "¿Qué política organizativa gobierna el bloqueo de pedidos sin prepago y qué tipos de fuente la respaldan?",
+      "expected_answer": "La política 'Pago anticipado a clientes nuevos' (policy-pago-anticipado-a-clientes-nuevos), con evidencia de documento (manual comercial 4.1/4.2) y de entrevista validada por administración.",
+      "verification": "untacit_explore(rule-bloqueo-de-pedido-sin-prepago) muestra GOVERNS entrante desde la policy; untacit_evidence sobre esa arista lista source_type document e interview (validated_by administracion)."
+    },
+    {
+      "id": "eval-03",
+      "question": "¿Cuántos conflictos abiertos hay en el grafo y entre qué elementos?",
+      "expected_answer": "Cuatro: (1) rule-aprobacion-de-gerencia-para-pedidos-altos -VALIDATES-> entity-pedido, (2) rule-recargo-por-pedido-urgente -CALCULATES-> entity-pedido, (3) rule-descuento-por-volumen -CALCULATES-> entity-linea-de-pedido y (4) rule-parada-por-horas-de-uso-de-troqueladora -VALIDATES-> process-mantenimiento-preventivo.",
+      "verification": "untacit_conflicts() devuelve exactamente esas cuatro aristas en estado conflicted."
+    },
+    {
+      "id": "eval-04",
+      "question": "¿En qué se contradicen el código y el manual de procedimientos respecto a la aprobación de gerencia?",
+      "expected_answer": "El código exige aprobación por importe (pedidos que superan 10.000 EUR); el manual de procedimientos dice que la aprobación solo aplica a pedidos de clientes de nueva incorporación, sin límite de importe.",
+      "verification": "untacit_evidence sobre la arista conflicted VALIDATES de rule-aprobacion-de-gerencia-para-pedidos-altos: excerpt de code (umbral 10000) con stance supports vs excerpt del manual-procedimientos 2.3 con stance contradicts."
+    },
+    {
+      "id": "eval-05",
+      "question": "¿El recargo del 15% a pedidos urgentes sigue vigente?",
+      "expected_answer": "Está en conflicto: la web de pedidos aún lo calcula (evidencia de código), pero el manual comercial 4.5 y administración (entrevista validada) afirman que se eliminó en 2024. Requiere resolución humana.",
+      "verification": "untacit_conflicts() incluye rule-recargo-por-pedido-urgente -CALCULATES-> entity-pedido con 1 evidencia supports (code) y 2 contradicts (document + interview)."
+    },
+    {
+      "id": "eval-06",
+      "question": "¿Qué procesos quedan afectados, directa o transitivamente, si cambia la política de pago anticipado a clientes nuevos?",
+      "expected_answer": "Alta de pedido y gestión de reclamaciones (gobernados directamente), y por las cadenas de disparos: planificación de la producción, troquelado, expedición, picking de expedición, facturación mensual, cierre contable mensual y gestión de no conformidades.",
+      "verification": "untacit_impact(policy-pago-anticipado-a-clientes-nuevos, downstream) devuelve process-alta-de-pedido y process-gestion-de-reclamaciones a distancia 1 y las cadenas planificacion/troquelado/expedicion/picking/facturacion/cierre-contable y no-conformidades a distancias 2-7."
+    },
+    {
+      "id": "eval-07",
+      "question": "¿Quién ejecuta la facturación mensual y con qué confianza lo afirma el grafo?",
+      "expected_answer": "El rol Administración, con confianza 0.99 (evidencia de documento y de entrevista validada en vivo).",
+      "verification": "untacit_explore(process-facturacion-mensual) muestra EXECUTES entrante desde role-administracion con confidence 0.99 y evidencias document + interview."
+    },
+    {
+      "id": "eval-08",
+      "question": "¿Qué evento dispara la planificación de la producción y qué proceso genera ese evento?",
+      "expected_answer": "El evento 'Pedido creado' (event-pedido-creado), generado por el proceso de alta de pedido.",
+      "verification": "untacit_explore(process-planificacion-de-la-produccion) muestra TRIGGERS entrante desde event-pedido-creado, que a su vez recibe TRIGGERS desde process-alta-de-pedido."
+    },
+    {
+      "id": "eval-09",
+      "question": "¿De qué regla depende la asignación de bobina por gramaje y qué calcula esa dependencia?",
+      "expected_answer": "Depende de la regla 'Cálculo de merma de bobina' (rule-calculo-de-merma-de-bobina), que calcula la merma sobre la entidad Bobina.",
+      "verification": "untacit_explore(rule-asignacion-de-bobina-por-gramaje) muestra DEPENDS_ON hacia rule-calculo-de-merma-de-bobina, cuya arista CALCULATES apunta a entity-bobina."
+    },
+    {
+      "id": "eval-10",
+      "question": "¿Qué política gobierna el control de calidad de tirada, quién lo ejecuta y de qué proceso forma parte?",
+      "expected_answer": "Lo gobierna la política 'Calidad obligatoria por tirada' (policy-calidad-obligatoria-por-tirada), lo ejecuta el jefe de producción y es parte del proceso de troquelado.",
+      "verification": "untacit_explore(process-control-de-calidad-de-tirada): GOVERNS entrante desde la policy, EXECUTES entrante desde role-jefe-de-produccion y PART_OF hacia process-troquelado."
+    }
+  ]
+}

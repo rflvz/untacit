@@ -1,0 +1,547 @@
+{
+  "run_id": "2026-07-01T10-00-00-code",
+  "source_type": "code",
+  "schema_version": 1,
+  "extractor": {
+    "name": "extractor-code",
+    "model": "claude-fable-5",
+    "prompt_version": "v1"
+  },
+  "nodes": [
+    {
+      "mention": "Cliente",
+      "type": "entity",
+      "name": "Cliente",
+      "description": "Empresa que compra embalaje de cartón a Acme Manufactura. Se clasifica en clase A, B o C y puede estar marcada como cliente nuevo.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/ventas/clientes.ts", "line_start": 12, "line_end": 21, "commit": "a1b2c3d" },
+        "excerpt": "export interface Cliente { id: string; razonSocial: string; clase: 'A' | 'B' | 'C'; esNuevo: boolean; condicionesPago: CondicionesPago; }"
+      }
+    },
+    {
+      "mention": "Pedido",
+      "type": "entity",
+      "name": "Pedido",
+      "description": "Pedido de venta de cajas o planchas de cartón. Contiene líneas, importe total, indicador de urgencia y estado del pago anticipado.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/ventas/pedidos.ts", "line_start": 8, "line_end": 20, "commit": "a1b2c3d" },
+        "excerpt": "export interface Pedido { numero: string; clienteId: string; lineas: LineaPedido[]; importeTotal: number; urgente: boolean; pagoAnticipado: boolean; estado: EstadoPedido; }"
+      }
+    },
+    {
+      "mention": "LineaPedido",
+      "type": "entity",
+      "name": "Línea de pedido",
+      "description": "Línea de un pedido de venta: referencia de caja o plancha, cantidad en unidades y precio unitario.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/ventas/pedidos.ts", "line_start": 22, "line_end": 29, "commit": "a1b2c3d" },
+        "excerpt": "export interface LineaPedido { referencia: string; cantidad: number; precioUnitario: number; troquelId?: string; }"
+      }
+    },
+    {
+      "mention": "Factura",
+      "type": "entity",
+      "name": "Factura",
+      "description": "Factura mensual emitida a un cliente agrupando los pedidos expedidos en el periodo.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/facturacion/factura.ts", "line_start": 5, "line_end": 14, "commit": "a1b2c3d" },
+        "excerpt": "export interface Factura { serie: string; numero: number; clienteId: string; pedidos: string[]; baseImponible: number; vencimiento: Date; }"
+      }
+    },
+    {
+      "mention": "Bobina",
+      "type": "entity",
+      "name": "Bobina",
+      "description": "Bobina de papel (materia prima del cartón) caracterizada por gramaje, ancho y metros lineales disponibles.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/bobinas.ts", "line_start": 6, "line_end": 14, "commit": "a1b2c3d" },
+        "excerpt": "export interface Bobina { codigo: string; gramaje: number; anchoMm: number; metrosLineales: number; mermaEstimada?: number; }"
+      }
+    },
+    {
+      "mention": "OrdenFabricacion",
+      "type": "entity",
+      "name": "Orden de fabricación",
+      "description": "Orden interna que agrupa lo que hay que fabricar para un pedido: bobina asignada, troquel a utilizar y fecha prevista.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/ordenes.ts", "line_start": 9, "line_end": 18, "commit": "a1b2c3d" },
+        "excerpt": "export interface OrdenFabricacion { numero: string; pedidoNumero: string; bobinaCodigo?: string; troquelId: string; fechaPrevista: Date; estado: EstadoOrden; }"
+      }
+    },
+    {
+      "mention": "altaPedido",
+      "type": "process",
+      "name": "Alta de pedido",
+      "description": "Registro de un pedido de venta: validación del cliente, cálculo de importes y emisión del evento de creación.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/ventas/pedidos.ts", "line_start": 40, "line_end": 58, "commit": "a1b2c3d" },
+        "excerpt": "export async function altaPedido(cliente: Cliente, borrador: BorradorPedido): Promise<Pedido> { validarCliente(cliente); const pedido = crearPedido(borrador); await publicar(new PedidoCreadoEvent(pedido)); return pedido; }"
+      }
+    },
+    {
+      "mention": "facturacionMensual",
+      "type": "process",
+      "name": "Facturación mensual",
+      "description": "Proceso batch que a fin de mes agrupa los pedidos expedidos de cada cliente y emite las facturas correspondientes.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/facturacion/facturacion-mensual.ts", "line_start": 18, "line_end": 33, "commit": "a1b2c3d" },
+        "excerpt": "// Job de fin de mes: agrupa los pedidos expedidos por cliente y emite facturas\nexport async function facturacionMensual(periodo: Periodo): Promise<Factura[]> { const pedidos = await pedidosExpedidos(periodo); return emitirFacturasPorCliente(pedidos); }"
+      }
+    },
+    {
+      "mention": "planificarProduccion",
+      "type": "process",
+      "name": "Planificación de la producción",
+      "description": "Convierte los pedidos confirmados en órdenes de fabricación y las secuencia por fecha de entrega y clase de cliente.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/planificacion.ts", "line_start": 21, "line_end": 35, "commit": "a1b2c3d" },
+        "excerpt": "export function planificarProduccion(pedidos: Pedido[]): OrdenFabricacion[] { const ordenados = priorizarPorEntregaYClase(pedidos); return ordenados.map(crearOrdenFabricacion); }"
+      }
+    },
+    {
+      "mention": "procesoTroquelado",
+      "type": "process",
+      "name": "Troquelado",
+      "description": "Fase de fabricación en la que la plancha de cartón se corta y hiende con el troquel indicado en la orden de fabricación.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/troquelado.ts", "line_start": 14, "line_end": 29, "commit": "a1b2c3d" },
+        "excerpt": "// Ejecuta la fase de troquelado de la orden: corte y hendido de la plancha\nexport async function procesoTroquelado(orden: OrdenFabricacion): Promise<ResultadoTroquelado> { const bobina = await bobinas.obtener(orden.bobinaCodigo); return troquelar(orden, bobina); }"
+      }
+    },
+    {
+      "mention": "expedicion",
+      "type": "process",
+      "name": "Expedición",
+      "description": "Preparación y salida de la mercancía fabricada: embalado, emisión de albarán y carga.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/logistica/expedicion.ts", "line_start": 11, "line_end": 22, "commit": "a1b2c3d" },
+        "excerpt": "export async function expedicion(orden: OrdenFabricacion): Promise<Albaran> { const bultos = embalar(orden); return emitirAlbaran(orden, bultos); }"
+      }
+    },
+    {
+      "mention": "bloqueoPedidoSinPrepago",
+      "type": "rule",
+      "name": "Bloqueo de pedido sin prepago",
+      "description": "Rechaza cualquier pedido de un cliente nuevo si no consta el pago anticipado, sin excepción por importe.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/portal/checkout.ts", "line_start": 84, "line_end": 91, "commit": "a1b2c3d" },
+        "excerpt": "if (cliente.esNuevo && !pedido.pagoAnticipado) { throw new PedidoRechazadoError('Cliente nuevo: se requiere pago anticipado'); }"
+      }
+    },
+    {
+      "mention": "aplicarDescuentoVolumen",
+      "type": "rule",
+      "name": "Descuento por volumen",
+      "description": "A partir de 5.000 unidades en una línea se aplica un descuento del 8% sobre el precio unitario de tarifa.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/ventas/tarifas.ts", "line_start": 44, "line_end": 52, "commit": "a1b2c3d" },
+        "excerpt": "const DESCUENTO_VOLUMEN = 0.08; const UMBRAL_UNIDADES = 5000; if (linea.cantidad >= UMBRAL_UNIDADES) { linea.precioUnitario = precioTarifa * (1 - DESCUENTO_VOLUMEN); }"
+      }
+    },
+    {
+      "mention": "requiereAprobacionGerencia",
+      "type": "rule",
+      "name": "Aprobación de gerencia para pedidos altos",
+      "description": "Los pedidos con importe superior a 10.000 € quedan retenidos hasta que gerencia los aprueba.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/ventas/aprobaciones.ts", "line_start": 17, "line_end": 26, "commit": "a1b2c3d" },
+        "excerpt": "const LIMITE_APROBACION = 10000; if (pedido.importeTotal > LIMITE_APROBACION) { pedido.estado = 'pendiente_aprobacion'; await solicitarAprobacion(pedido, 'gerencia'); }"
+      }
+    },
+    {
+      "mention": "calcularMermaBobina",
+      "type": "rule",
+      "name": "Cálculo de merma de bobina",
+      "description": "Calcula la merma estimada de una bobina en función del formato de plancha y los metros de arranque de máquina.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/bobinas.ts", "line_start": 40, "line_end": 52, "commit": "a1b2c3d" },
+        "excerpt": "// merma = arranque fijo + recorte lateral proporcional al ancho no útil\nexport function calcularMermaBobina(bobina: Bobina, formato: Formato): number { return METROS_ARRANQUE + ((bobina.anchoMm - formato.anchoUtilMm) / bobina.anchoMm) * bobina.metrosLineales; }"
+      }
+    },
+    {
+      "mention": "asignarBobinaPorGramaje",
+      "type": "rule",
+      "name": "Asignación de bobina por gramaje",
+      "description": "Selecciona para cada orden de fabricación una bobina compatible en gramaje y ancho, con metros suficientes tras descontar la merma estimada.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/bobinas.ts", "line_start": 60, "line_end": 74, "commit": "a1b2c3d" },
+        "excerpt": "const candidatas = bobinas.filter(b => b.gramaje === formato.gramaje && b.anchoMm >= formato.anchoUtilMm && b.metrosLineales - calcularMermaBobina(b, formato) >= metrosNecesarios);"
+      }
+    },
+    {
+      "mention": "calcularRecargoUrgente",
+      "type": "rule",
+      "name": "Recargo por pedido urgente",
+      "description": "Los pedidos marcados como urgentes reciben un recargo del 15% sobre el importe neto.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/portal/checkout.ts", "line_start": 102, "line_end": 109, "commit": "a1b2c3d" },
+        "excerpt": "const RECARGO_URGENTE = 0.15; if (pedido.urgente) { pedido.recargoUrgencia = redondear(importeNeto * RECARGO_URGENTE); }"
+      }
+    },
+    {
+      "mention": "acme-erp",
+      "type": "system",
+      "name": "ERP Acme",
+      "description": "ERP interno de Acme Manufactura: ventas, producción, logística y facturación. Monolito modular TypeScript en el repositorio acme-erp.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/index.ts", "line_start": 1, "line_end": 6, "commit": "a1b2c3d" },
+        "excerpt": "// acme-erp: monolito modular TypeScript de Acme Manufactura\nexport const MODULOS = ['ventas', 'produccion', 'logistica', 'facturacion', 'portal'];"
+      }
+    },
+    {
+      "mention": "web-pedidos",
+      "type": "system",
+      "name": "Web de pedidos",
+      "description": "Portal web donde los clientes registran sus pedidos; vive como módulo portal dentro del monolito acme-erp.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/portal/index.ts", "line_start": 1, "line_end": 8, "commit": "a1b2c3d" },
+        "excerpt": "// Módulo portal: web de pedidos para clientes (checkout y seguimiento)\nexport function montarPortalPedidos(app: App) { app.use('/pedidos', rutasCheckout); }"
+      }
+    },
+    {
+      "mention": "PedidoCreadoEvent",
+      "type": "event",
+      "name": "Pedido creado",
+      "description": "Evento de dominio emitido al completarse el alta de un pedido; lo consume la planificación de la producción.",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/eventos/pedido-creado.ts", "line_start": 4, "line_end": 9, "commit": "a1b2c3d" },
+        "excerpt": "export class PedidoCreadoEvent { readonly tipo = 'pedido.creado'; constructor(readonly pedido: Pedido) {} }"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "type": "VALIDATES",
+      "source_mention": "bloqueoPedidoSinPrepago",
+      "target_mention": "altaPedido",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/portal/checkout.ts", "line_start": 80, "line_end": 92, "commit": "a1b2c3d" },
+        "excerpt": "// Validación previa al alta del pedido\nfunction validarPrepago(cliente: Cliente, pedido: Pedido) { if (cliente.esNuevo && !pedido.pagoAnticipado) throw new PedidoRechazadoError('Cliente nuevo: se requiere pago anticipado'); }"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "bloqueoPedidoSinPrepago",
+      "target_mention": "Cliente",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/portal/checkout.ts", "line_start": 84, "line_end": 86, "commit": "a1b2c3d" },
+        "excerpt": "if (cliente.esNuevo && !pedido.pagoAnticipado) { // lee la condición de cliente nuevo de la ficha"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "bloqueoPedidoSinPrepago",
+      "target_mention": "Pedido",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/portal/checkout.ts", "line_start": 84, "line_end": 91, "commit": "a1b2c3d" },
+        "excerpt": "if (cliente.esNuevo && !pedido.pagoAnticipado) { throw new PedidoRechazadoError('Cliente nuevo: se requiere pago anticipado'); } // rechaza el pedido"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "bloqueoPedidoSinPrepago",
+      "target_mention": "web-pedidos",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/portal/checkout.ts", "line_start": 84, "line_end": 91, "commit": "a1b2c3d" },
+        "excerpt": "// src/portal/checkout.ts — checkout del módulo portal (web de pedidos de clientes)"
+      }
+    },
+    {
+      "type": "CALCULATES",
+      "source_mention": "aplicarDescuentoVolumen",
+      "target_mention": "LineaPedido",
+      "stance": "supports",
+      "attrs": { "attribute": "precio_unitario" },
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/ventas/tarifas.ts", "line_start": 44, "line_end": 52, "commit": "a1b2c3d" },
+        "excerpt": "if (linea.cantidad >= UMBRAL_UNIDADES) { linea.precioUnitario = precioTarifa * (1 - DESCUENTO_VOLUMEN); }"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "aplicarDescuentoVolumen",
+      "target_mention": "LineaPedido",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/ventas/tarifas.ts", "line_start": 44, "line_end": 48, "commit": "a1b2c3d" },
+        "excerpt": "// El descuento se decide línea a línea según la cantidad solicitada\nif (linea.cantidad >= UMBRAL_UNIDADES) {"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "aplicarDescuentoVolumen",
+      "target_mention": "acme-erp",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/ventas/tarifas.ts", "line_start": 1, "line_end": 4, "commit": "a1b2c3d" },
+        "excerpt": "// Módulo ventas del ERP: tarifas y descuentos comerciales"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "requiereAprobacionGerencia",
+      "target_mention": "Pedido",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/ventas/aprobaciones.ts", "line_start": 17, "line_end": 26, "commit": "a1b2c3d" },
+        "excerpt": "if (pedido.importeTotal > LIMITE_APROBACION) { pedido.estado = 'pendiente_aprobacion'; } // el pedido no avanza hasta la aprobación"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "requiereAprobacionGerencia",
+      "target_mention": "Pedido",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/ventas/aprobaciones.ts", "line_start": 17, "line_end": 20, "commit": "a1b2c3d" },
+        "excerpt": "const LIMITE_APROBACION = 10000; if (pedido.importeTotal > LIMITE_APROBACION) { // lee el importe total del pedido"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "requiereAprobacionGerencia",
+      "target_mention": "acme-erp",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/ventas/aprobaciones.ts", "line_start": 1, "line_end": 4, "commit": "a1b2c3d" },
+        "excerpt": "// Módulo ventas del ERP: circuito de aprobaciones de pedidos"
+      }
+    },
+    {
+      "type": "CALCULATES",
+      "source_mention": "calcularMermaBobina",
+      "target_mention": "Bobina",
+      "stance": "supports",
+      "attrs": { "attribute": "merma_estimada" },
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/bobinas.ts", "line_start": 40, "line_end": 52, "commit": "a1b2c3d" },
+        "excerpt": "bobina.mermaEstimada = calcularMermaBobina(bobina, formato);"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "calcularMermaBobina",
+      "target_mention": "Bobina",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/bobinas.ts", "line_start": 44, "line_end": 48, "commit": "a1b2c3d" },
+        "excerpt": "return METROS_ARRANQUE + ((bobina.anchoMm - formato.anchoUtilMm) / bobina.anchoMm) * bobina.metrosLineales;"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "calcularMermaBobina",
+      "target_mention": "acme-erp",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/bobinas.ts", "line_start": 1, "line_end": 4, "commit": "a1b2c3d" },
+        "excerpt": "// Módulo produccion del ERP: gestión de bobinas y mermas"
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "asignarBobinaPorGramaje",
+      "target_mention": "OrdenFabricacion",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/bobinas.ts", "line_start": 68, "line_end": 74, "commit": "a1b2c3d" },
+        "excerpt": "if (candidatas.length === 0) throw new OrdenSinBobinaError(orden.numero); orden.bobinaCodigo = candidatas[0].codigo;"
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "asignarBobinaPorGramaje",
+      "target_mention": "Bobina",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/bobinas.ts", "line_start": 60, "line_end": 66, "commit": "a1b2c3d" },
+        "excerpt": "const candidatas = bobinas.filter(b => b.gramaje === formato.gramaje && b.anchoMm >= formato.anchoUtilMm);"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "asignarBobinaPorGramaje",
+      "target_mention": "calcularMermaBobina",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/bobinas.ts", "line_start": 64, "line_end": 66, "commit": "a1b2c3d" },
+        "excerpt": "b.metrosLineales - calcularMermaBobina(b, formato) >= metrosNecesarios // usa la merma estimada para decidir"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "asignarBobinaPorGramaje",
+      "target_mention": "acme-erp",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/bobinas.ts", "line_start": 60, "line_end": 74, "commit": "a1b2c3d" },
+        "excerpt": "// Módulo produccion del ERP: asignación de bobinas a órdenes de fabricación"
+      }
+    },
+    {
+      "type": "CALCULATES",
+      "source_mention": "calcularRecargoUrgente",
+      "target_mention": "Pedido",
+      "stance": "supports",
+      "attrs": { "attribute": "recargo_urgencia" },
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/portal/checkout.ts", "line_start": 102, "line_end": 109, "commit": "a1b2c3d" },
+        "excerpt": "const RECARGO_URGENTE = 0.15; if (pedido.urgente) { pedido.recargoUrgencia = redondear(importeNeto * RECARGO_URGENTE); }"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "calcularRecargoUrgente",
+      "target_mention": "web-pedidos",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/portal/checkout.ts", "line_start": 102, "line_end": 109, "commit": "a1b2c3d" },
+        "excerpt": "// src/portal/checkout.ts — el recargo se calcula en el checkout del portal de pedidos"
+      }
+    },
+    {
+      "type": "PART_OF",
+      "source_mention": "LineaPedido",
+      "target_mention": "Pedido",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/ventas/pedidos.ts", "line_start": 8, "line_end": 29, "commit": "a1b2c3d" },
+        "excerpt": "export interface Pedido { numero: string; clienteId: string; lineas: LineaPedido[]; ... }"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "altaPedido",
+      "target_mention": "PedidoCreadoEvent",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/ventas/pedidos.ts", "line_start": 52, "line_end": 54, "commit": "a1b2c3d" },
+        "excerpt": "await publicar(new PedidoCreadoEvent(pedido));"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "PedidoCreadoEvent",
+      "target_mention": "planificarProduccion",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/planificacion.ts", "line_start": 10, "line_end": 14, "commit": "a1b2c3d" },
+        "excerpt": "bus.on('pedido.creado', (evento) => encolarParaPlanificacion(evento.pedido));"
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "planificarProduccion",
+      "target_mention": "procesoTroquelado",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/planificacion.ts", "line_start": 40, "line_end": 46, "commit": "a1b2c3d" },
+        "excerpt": "for (const orden of ordenes) { await colaTroquelado.encolar(orden); } // cada orden planificada pasa a troquelado"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "procesoTroquelado",
+      "target_mention": "Bobina",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/troquelado.ts", "line_start": 18, "line_end": 24, "commit": "a1b2c3d" },
+        "excerpt": "const bobina = await bobinas.obtener(orden.bobinaCodigo); if (!bobina) throw new BobinaNoDisponibleError(orden.numero);"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "procesoTroquelado",
+      "target_mention": "asignarBobinaPorGramaje",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/troquelado.ts", "line_start": 14, "line_end": 18, "commit": "a1b2c3d" },
+        "excerpt": "// La orden debe llegar con bobina ya asignada por asignarBobinaPorGramaje; sin ella no se puede troquelar"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "procesoTroquelado",
+      "target_mention": "acme-erp",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/troquelado.ts", "line_start": 1, "line_end": 4, "commit": "a1b2c3d" },
+        "excerpt": "// Módulo produccion del ERP: control de la fase de troquelado"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "expedicion",
+      "target_mention": "procesoTroquelado",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/logistica/expedicion.ts", "line_start": 8, "line_end": 14, "commit": "a1b2c3d" },
+        "excerpt": "if (orden.estado !== 'troquelada') throw new OrdenNoFabricadaError(orden.numero); // no se expide sin troquelar"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "facturacionMensual",
+      "target_mention": "Pedido",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/facturacion/facturacion-mensual.ts", "line_start": 20, "line_end": 24, "commit": "a1b2c3d" },
+        "excerpt": "const pedidos = await pedidosExpedidos(periodo); // la facturación parte de los pedidos del periodo"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "facturacionMensual",
+      "target_mention": "expedicion",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/facturacion/facturacion-mensual.ts", "line_start": 18, "line_end": 22, "commit": "a1b2c3d" },
+        "excerpt": "// Solo se facturan pedidos con expedición completada (albarán emitido)"
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "facturacionMensual",
+      "target_mention": "Factura",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/facturacion/facturacion-mensual.ts", "line_start": 28, "line_end": 31, "commit": "a1b2c3d" },
+        "excerpt": "return emitirFacturasPorCliente(pedidos); // construye una Factura por cliente con los pedidos del periodo"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "facturacionMensual",
+      "target_mention": "acme-erp",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/facturacion/facturacion-mensual.ts", "line_start": 1, "line_end": 4, "commit": "a1b2c3d" },
+        "excerpt": "// Módulo facturacion del ERP: emisión mensual de facturas"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "altaPedido",
+      "target_mention": "web-pedidos",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/portal/checkout.ts", "line_start": 30, "line_end": 36, "commit": "a1b2c3d" },
+        "excerpt": "router.post('/pedidos', async (req, res) => { const pedido = await altaPedido(cliente, req.body); res.json(pedido); });"
+      }
+    },
+    {
+      "type": "IMPLEMENTED_IN",
+      "source_mention": "planificarProduccion",
+      "target_mention": "acme-erp",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "repo": "acme-erp", "path": "src/produccion/planificacion.ts", "line_start": 1, "line_end": 4, "commit": "a1b2c3d" },
+        "excerpt": "// Módulo produccion del ERP: planificación de órdenes de fabricación"
+      }
+    }
+  ]
+}

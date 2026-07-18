@@ -1,0 +1,26 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "untacit",
+  "version": "0.1.0",
+  "identifier": "dev.untacit.app",
+  "build": {
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist",
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build && pnpm bundle:sidecar"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "untacit",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 760,
+        "minHeight": 520
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  }
+}

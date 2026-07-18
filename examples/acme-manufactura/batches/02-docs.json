@@ -1,0 +1,387 @@
+{
+  "run_id": "2026-07-02T09-30-00-document",
+  "source_type": "document",
+  "extractor": {
+    "name": "extractor-docs",
+    "model": "claude-sonnet-5",
+    "prompt_version": "docs-v1"
+  },
+  "nodes": [
+    {
+      "mention": "clientes",
+      "type": "entity",
+      "name": "Cliente",
+      "description": "Empresa o particular que compra embalaje de cartón a Acme.",
+      "evidence": {
+        "locator": { "doc_id": "manual-comercial", "title": "Manual comercial", "section": "2.1" },
+        "excerpt": "Los clientes se clasifican en recurrentes y de nueva incorporación según su antigüedad y volumen de compra."
+      }
+    },
+    {
+      "mention": "pedidos",
+      "type": "entity",
+      "name": "Pedido",
+      "description": "Solicitud de compra de un cliente con una o más líneas de producto.",
+      "evidence": {
+        "locator": { "doc_id": "manual-comercial", "title": "Manual comercial", "section": "3.1" },
+        "excerpt": "Todo pedido debe registrarse en el sistema el mismo día de su recepción, indicando cliente, producto, cantidad y plazo."
+      }
+    },
+    {
+      "mention": "Factura",
+      "type": "entity",
+      "name": "Factura",
+      "description": "Documento de cobro emitido al cliente por los pedidos servidos.",
+      "evidence": {
+        "locator": { "doc_id": "manual-administracion", "title": "Manual de administración", "section": "5.1" },
+        "excerpt": "La factura agrupa los albaranes del mes servido a cada cliente y se emite dentro de los cinco primeros días hábiles."
+      }
+    },
+    {
+      "mention": "Órdenes de fabricación",
+      "type": "entity",
+      "name": "Órdenes de fabricación",
+      "description": "Documento interno que ordena producir una tirada concreta.",
+      "evidence": {
+        "locator": { "doc_id": "manual-produccion", "title": "Manual de producción", "section": "1.2" },
+        "excerpt": "Las órdenes de fabricación agrupan pedidos compatibles por gramaje y calidad de cartón para minimizar cambios de bobina."
+      }
+    },
+    {
+      "mention": "alta de pedido",
+      "type": "process",
+      "name": "Alta de pedido",
+      "description": "Registro y verificación de un pedido nuevo antes de pasarlo a producción.",
+      "evidence": {
+        "locator": { "doc_id": "manual-comercial", "title": "Manual comercial", "section": "3.2" },
+        "excerpt": "El alta de pedido comprende la comprobación de datos del cliente, condiciones de pago y viabilidad técnica del producto solicitado."
+      }
+    },
+    {
+      "mention": "Facturación mensual",
+      "type": "process",
+      "name": "Facturación mensual",
+      "description": "Emisión de facturas a fin de mes por los pedidos expedidos.",
+      "evidence": {
+        "locator": { "doc_id": "manual-administracion", "title": "Manual de administración", "section": "5.2" },
+        "excerpt": "La facturación mensual se ejecuta al cierre de mes: administración revisa los albaranes pendientes y emite las facturas agrupadas."
+      }
+    },
+    {
+      "mention": "Planificación de la producción",
+      "type": "process",
+      "name": "Planificación de la producción",
+      "description": "Asignación de pedidos a órdenes de fabricación y a máquinas.",
+      "evidence": {
+        "locator": { "doc_id": "manual-produccion", "title": "Manual de producción", "section": "2.1" },
+        "excerpt": "La planificación de la producción prioriza por fecha de entrega comprometida y agrupa tiradas por gramaje."
+      }
+    },
+    {
+      "mention": "Troquelado",
+      "type": "process",
+      "name": "Troquelado",
+      "description": "Proceso de corte del cartón según el troquel del producto.",
+      "evidence": {
+        "locator": { "doc_id": "manual-produccion", "title": "Manual de producción", "section": "3.4" },
+        "excerpt": "En el troquelado se corta la plancha según el troquel aprobado; toda tirada queda sujeta al control de calidad de tirada."
+      }
+    },
+    {
+      "mention": "Control de calidad de tirada",
+      "type": "process",
+      "name": "Control de calidad de tirada",
+      "description": "Inspección por muestreo de cada tirada de troquelado antes de liberar el lote.",
+      "evidence": {
+        "locator": { "doc_id": "manual-produccion", "title": "Manual de producción", "section": "3.5" },
+        "excerpt": "El control de calidad de tirada inspecciona por muestreo cotas, hendido y limpieza de corte; una tirada rechazada se retiene y se repite."
+      }
+    },
+    {
+      "mention": "Gestión de reclamaciones",
+      "type": "process",
+      "name": "Gestión de reclamaciones",
+      "description": "Tratamiento de las reclamaciones de cliente sobre pedidos servidos o facturas.",
+      "evidence": {
+        "locator": { "doc_id": "manual-administracion", "title": "Manual de administración", "section": "6.1" },
+        "excerpt": "Toda reclamación se registra con referencia al pedido y a la factura afectada y debe responderse en un máximo de cinco días hábiles."
+      }
+    },
+    {
+      "mention": "Bloqueo de pedido sin prepago",
+      "type": "rule",
+      "name": "Bloqueo de pedido sin prepago",
+      "description": "Se rechaza el pedido de un cliente nuevo sin pago registrado.",
+      "evidence": {
+        "locator": { "doc_id": "manual-comercial", "title": "Manual comercial", "section": "4.2" },
+        "excerpt": "A clientes de nueva incorporación se les exigirá el pago por adelantado antes de dar curso al pedido."
+      }
+    },
+    {
+      "mention": "Aprobación de gerencia para pedidos altos",
+      "type": "rule",
+      "name": "Aprobación de gerencia para pedidos altos",
+      "description": "Los pedidos que superan el umbral requieren aprobación de gerencia.",
+      "evidence": {
+        "locator": { "doc_id": "manual-procedimientos", "title": "Manual de procedimientos", "section": "2.3" },
+        "excerpt": "La aprobación de gerencia se aplica únicamente a pedidos de clientes de nueva incorporación, con independencia del importe."
+      }
+    },
+    {
+      "mention": "Recargo por pedido urgente",
+      "type": "rule",
+      "name": "Recargo por pedido urgente",
+      "description": "Recargo aplicado a pedidos con plazo de entrega urgente.",
+      "evidence": {
+        "locator": { "doc_id": "manual-comercial", "title": "Manual comercial", "section": "4.5" },
+        "excerpt": "Desde enero de 2024 los pedidos urgentes no llevan recargo: el plazo exprés se negocia comercialmente caso a caso."
+      }
+    },
+    {
+      "mention": "Pago anticipado a clientes nuevos",
+      "type": "policy",
+      "name": "Pago anticipado a clientes nuevos",
+      "description": "No se sirve mercancía a clientes nuevos sin pago anticipado, por el histórico de impagos.",
+      "evidence": {
+        "locator": { "doc_id": "manual-comercial", "title": "Manual comercial", "section": "4.1" },
+        "excerpt": "Como norma general, no se sirve mercancía a clientes de nueva incorporación sin haber registrado el pago anticipado."
+      }
+    },
+    {
+      "mention": "Calidad obligatoria por tirada",
+      "type": "policy",
+      "name": "Calidad obligatoria por tirada",
+      "description": "Ninguna tirada se libera sin pasar el control de calidad.",
+      "evidence": {
+        "locator": { "doc_id": "manual-produccion", "title": "Manual de producción", "section": "3.5" },
+        "excerpt": "Ninguna tirada puede expedirse sin acta de control de calidad firmada por el responsable de turno."
+      }
+    },
+    {
+      "mention": "Comercial",
+      "type": "role",
+      "name": "Comercial",
+      "description": "Rol responsable de la relación con el cliente y del registro de pedidos.",
+      "evidence": {
+        "locator": { "doc_id": "manual-comercial", "title": "Manual comercial", "section": "1.3" },
+        "excerpt": "El comercial es responsable del alta de los pedidos de su cartera y de comunicar las condiciones de pago al cliente."
+      }
+    },
+    {
+      "mention": "Administración",
+      "type": "role",
+      "name": "Administración",
+      "description": "Rol responsable de facturación, cobros y reclamaciones.",
+      "evidence": {
+        "locator": { "doc_id": "manual-administracion", "title": "Manual de administración", "section": "1.1" },
+        "excerpt": "Administración emite la facturación mensual, gestiona los cobros y tramita las reclamaciones de clientes."
+      }
+    },
+    {
+      "mention": "Jefe de producción",
+      "type": "role",
+      "name": "Jefe de producción",
+      "description": "Rol responsable de la planificación y de la liberación de tiradas.",
+      "evidence": {
+        "locator": { "doc_id": "manual-produccion", "title": "Manual de producción", "section": "1.1" },
+        "excerpt": "El jefe de producción ejecuta la planificación semanal y autoriza la liberación de tiradas tras el control de calidad."
+      }
+    },
+    {
+      "mention": "Fin de mes",
+      "type": "event",
+      "name": "Fin de mes",
+      "description": "Cierre contable mensual que dispara la facturación.",
+      "evidence": {
+        "locator": { "doc_id": "manual-administracion", "title": "Manual de administración", "section": "5.2" },
+        "excerpt": "Al cierre de mes se lanza el ciclo de facturación sobre todos los albaranes expedidos y no facturados."
+      }
+    }
+  ],
+  "edges": [
+    {
+      "type": "GOVERNS",
+      "source_mention": "Pago anticipado a clientes nuevos",
+      "target_mention": "Bloqueo de pedido sin prepago",
+      "evidence": {
+        "locator": { "doc_id": "manual-comercial", "title": "Manual comercial", "section": "4.2" },
+        "excerpt": "En aplicación de la norma de pago anticipado, el sistema bloqueará cualquier pedido de cliente nuevo sin pago registrado."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Pago anticipado a clientes nuevos",
+      "target_mention": "alta de pedido",
+      "evidence": {
+        "locator": { "doc_id": "manual-comercial", "title": "Manual comercial", "section": "4.1" },
+        "excerpt": "La política de pago anticipado condiciona el alta de pedido de los clientes de nueva incorporación."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Bloqueo de pedido sin prepago",
+      "target_mention": "alta de pedido",
+      "evidence": {
+        "locator": { "doc_id": "manual-comercial", "title": "Manual comercial", "section": "4.2" },
+        "excerpt": "El alta de pedido de un cliente nuevo no prosigue hasta que administración confirma el pago anticipado."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Aprobación de gerencia para pedidos altos",
+      "target_mention": "pedidos",
+      "stance": "contradicts",
+      "evidence": {
+        "locator": { "doc_id": "manual-procedimientos", "title": "Manual de procedimientos", "section": "2.3" },
+        "excerpt": "No existe umbral de importe para la aprobación de gerencia: solo se revisan los pedidos de clientes de nueva incorporación."
+      }
+    },
+    {
+      "type": "CALCULATES",
+      "source_mention": "Recargo por pedido urgente",
+      "target_mention": "pedidos",
+      "stance": "contradicts",
+      "attrs": { "attribute": "recargo_urgente" },
+      "evidence": {
+        "locator": { "doc_id": "manual-comercial", "title": "Manual comercial", "section": "4.5" },
+        "excerpt": "Queda sin efecto el recargo automático del 15% a pedidos urgentes vigente hasta diciembre de 2023."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Comercial",
+      "target_mention": "alta de pedido",
+      "evidence": {
+        "locator": { "doc_id": "manual-comercial", "title": "Manual comercial", "section": "1.3" },
+        "excerpt": "El alta de pedido la realiza el comercial responsable de la cuenta a través de la web de pedidos."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Administración",
+      "target_mention": "Facturación mensual",
+      "evidence": {
+        "locator": { "doc_id": "manual-administracion", "title": "Manual de administración", "section": "5.2" },
+        "excerpt": "Administración ejecuta la facturación mensual dentro de los cinco primeros días hábiles del mes siguiente."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Administración",
+      "target_mention": "Gestión de reclamaciones",
+      "evidence": {
+        "locator": { "doc_id": "manual-administracion", "title": "Manual de administración", "section": "6.1" },
+        "excerpt": "Las reclamaciones las tramita administración, que coordina con producción cuando la causa es un defecto de fabricación."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Jefe de producción",
+      "target_mention": "Planificación de la producción",
+      "evidence": {
+        "locator": { "doc_id": "manual-produccion", "title": "Manual de producción", "section": "2.1" },
+        "excerpt": "La planificación semanal la elabora el jefe de producción con los pedidos confirmados y la disponibilidad de bobina."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Jefe de producción",
+      "target_mention": "Control de calidad de tirada",
+      "evidence": {
+        "locator": { "doc_id": "manual-produccion", "title": "Manual de producción", "section": "3.5" },
+        "excerpt": "El control de calidad de tirada se realiza bajo la supervisión del jefe de producción o del responsable de turno delegado."
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "Fin de mes",
+      "target_mention": "Facturación mensual",
+      "evidence": {
+        "locator": { "doc_id": "manual-administracion", "title": "Manual de administración", "section": "5.2" },
+        "excerpt": "El cierre de mes dispara el ciclo de facturación mensual sobre los albaranes pendientes."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Calidad obligatoria por tirada",
+      "target_mention": "Control de calidad de tirada",
+      "evidence": {
+        "locator": { "doc_id": "manual-produccion", "title": "Manual de producción", "section": "3.5" },
+        "excerpt": "En cumplimiento de la política de calidad, toda tirada pasa el control de calidad antes de su liberación."
+      }
+    },
+    {
+      "type": "PART_OF",
+      "source_mention": "Control de calidad de tirada",
+      "target_mention": "Troquelado",
+      "evidence": {
+        "locator": { "doc_id": "manual-produccion", "title": "Manual de producción", "section": "3.4" },
+        "excerpt": "El troquelado incluye como fase final el control de calidad de tirada previo a la liberación del lote."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Gestión de reclamaciones",
+      "target_mention": "Factura",
+      "evidence": {
+        "locator": { "doc_id": "manual-administracion", "title": "Manual de administración", "section": "6.1" },
+        "excerpt": "La reclamación se tramita siempre con referencia a la factura afectada."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Gestión de reclamaciones",
+      "target_mention": "Órdenes de fabricación",
+      "evidence": {
+        "locator": { "doc_id": "manual-administracion", "title": "Manual de administración", "section": "6.2" },
+        "excerpt": "Si la causa es un defecto de fabricación, la reclamación se vincula a la orden de fabricación de la tirada afectada."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Planificación de la producción",
+      "target_mention": "Órdenes de fabricación",
+      "evidence": {
+        "locator": { "doc_id": "manual-produccion", "title": "Manual de producción", "section": "2.1" },
+        "excerpt": "La planificación materializa los pedidos agrupados en órdenes de fabricación por gramaje y calidad."
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "Control de calidad de tirada",
+      "target_mention": "Fin de mes",
+      "stance": "supports",
+      "evidence": {
+        "locator": { "doc_id": "manual-produccion", "title": "Manual de producción", "section": "3.6" },
+        "excerpt": "La liberación de la tirada habilita la expedición y su posterior facturación en el cierre de mes."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Bloqueo de pedido sin prepago",
+      "target_mention": "pedidos",
+      "evidence": {
+        "locator": { "doc_id": "manual-comercial", "title": "Manual comercial", "section": "4.2" },
+        "excerpt": "El pedido de un cliente nuevo queda retenido hasta la confirmación del pago anticipado."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Pago anticipado a clientes nuevos",
+      "target_mention": "Gestión de reclamaciones",
+      "evidence": {
+        "locator": { "doc_id": "manual-administracion", "title": "Manual de administración", "section": "6.3" },
+        "excerpt": "Las reclamaciones de clientes nuevos con pago anticipado tienen prioridad de tramitación."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Facturación mensual",
+      "target_mention": "pedidos",
+      "evidence": {
+        "locator": { "doc_id": "manual-administracion", "title": "Manual de administración", "section": "5.1" },
+        "excerpt": "Solo se facturan pedidos expedidos: la facturación mensual parte de la lista de albaranes del mes."
+      }
+    }
+  ]
+}

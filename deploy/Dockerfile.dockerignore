@@ -1,0 +1,12 @@
+# BuildKit per-Dockerfile ignore (applies when building with -f deploy/Dockerfile
+# from the repo root). Keep the context to what `pnpm install + build` needs.
+.git
+**/node_modules
+**/dist
+**/.untacit
+docs
+examples
+deploy
+.github
+**/*.test.ts
+packages/app/src-tauri/target

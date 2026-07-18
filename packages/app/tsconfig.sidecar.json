@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false,
+    "types": ["node"],
+    // Core may not have a built dist/ while agents work in parallel: typecheck
+    // against its sources. Runtime resolution is handled by sidecar/core-loader.ts
+    // and sidecar/extractors-loader.ts.
+    "paths": {
+      "@untacit/core": ["../core/src/index.ts"],
+      "@untacit/extractors": ["../extractors/src/index.ts"]
+    }
+  },
+  "include": ["sidecar", "src/api-types.ts"],
+  "exclude": ["sidecar/**/*.test.ts"]
+}

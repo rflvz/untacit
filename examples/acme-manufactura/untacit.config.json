@@ -1,0 +1,33 @@
+{
+  "language": "es",
+  "schema_version": 1,
+  "sources": {
+    "code": [
+      {
+        "name": "acme-erp",
+        "path": "../repos/acme-erp",
+        "include": ["src/**/*.ts"],
+        "exclude": ["src/**/*.test.ts", "src/infra/**"]
+      },
+      {
+        "name": "web-pedidos",
+        "path": "../repos/web-pedidos",
+        "include": ["src/**/*.ts"]
+      }
+    ],
+    "documents": [
+      {
+        "path": "../documentos",
+        "include": ["**/*.md", "**/*.pdf", "**/*.docx"]
+      }
+    ]
+  },
+  "thresholds": {
+    "review": 0.7,
+    "resolver_auto": 0.92,
+    "resolver_gray": 0.75
+  },
+  "embeddings": {
+    "provider": "auto"
+  }
+}

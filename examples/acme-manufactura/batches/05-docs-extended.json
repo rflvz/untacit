@@ -1,0 +1,2586 @@
+{
+  "run_id": "2026-07-11T10-30-00-document-extended",
+  "source_type": "document",
+  "schema_version": 1,
+  "extractor": {
+    "name": "extractor-docs",
+    "model": "claude-sonnet-5",
+    "prompt_version": "docs-v1"
+  },
+  "nodes": [
+    {
+      "mention": "Homologación obligatoria de proveedores",
+      "type": "policy",
+      "name": "Homologación obligatoria de proveedores",
+      "description": "Solo se compra a proveedores que hayan superado el proceso de homologación y lo mantengan vigente.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "1.1"
+        },
+        "excerpt": "Ningún departamento puede comprar materia prima a un proveedor que no figure como homologado en el listado vigente de compras."
+      }
+    },
+    {
+      "mention": "Homologación de proveedor",
+      "type": "process",
+      "name": "Homologación de proveedor",
+      "description": "Evaluación inicial de un proveedor: calidad de muestras, certificados, solvencia y auditoría documental.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "1.2"
+        },
+        "excerpt": "La homologación comprende la revisión de certificados, la evaluación de muestras de bobina y la comprobación de solvencia del proveedor."
+      }
+    },
+    {
+      "mention": "Evaluación anual de proveedores",
+      "type": "process",
+      "name": "Evaluación anual de proveedores",
+      "description": "Revisión anual del desempeño de cada proveedor homologado: incidencias, plazos y calidad servida.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "1.3"
+        },
+        "excerpt": "Cada mes de enero, compras evalúa a todos los proveedores homologados con los datos de incidencias y plazos del año anterior."
+      }
+    },
+    {
+      "mention": "Caducidad de certificado de proveedor",
+      "type": "rule",
+      "name": "Caducidad de certificado de proveedor",
+      "description": "Un proveedor cuyo certificado de calidad caduque pierde automáticamente la homologación hasta renovarlo.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "1.4"
+        },
+        "excerpt": "La caducidad de cualquier certificado obligatorio suspende la homologación del proveedor de forma automática y sin excepciones."
+      }
+    },
+    {
+      "mention": "Responsable de compras",
+      "type": "role",
+      "name": "Responsable de compras",
+      "description": "Persona que gestiona proveedores, órdenes de compra y la evaluación anual.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "1.5"
+        },
+        "excerpt": "El responsable de compras es el único autorizado para homologar proveedores y firmar órdenes de compra de materia prima."
+      }
+    },
+    {
+      "mention": "Rotación FIFO de materia prima",
+      "type": "policy",
+      "name": "Rotación FIFO de materia prima",
+      "description": "La materia prima se consume por orden estricto de entrada para evitar el envejecimiento del papel.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "1.6"
+        },
+        "excerpt": "El papel envejece y pierde propiedades mecánicas: toda bobina se consume por orden de entrada, sin excepciones de conveniencia."
+      }
+    },
+    {
+      "mention": "Certificado FSC",
+      "type": "entity",
+      "name": "Certificado FSC",
+      "description": "Certificado de cadena de custodia que acredita el origen sostenible del papel comprado y vendido.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "2.1"
+        },
+        "excerpt": "El certificado FSC de cadena de custodia ampara tanto el papel comprado como el producto vendido con logotipo FSC."
+      }
+    },
+    {
+      "mention": "Responsable de logística",
+      "type": "role",
+      "name": "Responsable de logística",
+      "description": "Persona que planifica las rutas de reparto y coordina a los transportistas.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "1.1"
+        },
+        "excerpt": "El responsable de logística cierra la planificación de rutas antes de las 16:00 del día anterior al reparto."
+      }
+    },
+    {
+      "mention": "Jefe de almacén",
+      "type": "role",
+      "name": "Jefe de almacén",
+      "description": "Persona que dirige recepción, ubicación, inventario y preparación de pedidos en el almacén.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "1.2"
+        },
+        "excerpt": "El jefe de almacén responde del cuadre de stock y de la secuencia de preparación de pedidos."
+      }
+    },
+    {
+      "mention": "Doble verificación de carga",
+      "type": "rule",
+      "name": "Doble verificación de carga",
+      "description": "Cada palet cargado se verifica dos veces: el carretillero al subirlo y el jefe de almacén contra el albarán.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "1.3"
+        },
+        "excerpt": "Ningún camión sale sin la doble verificación: el carretillero cuenta los palets al cargar y el jefe de almacén los coteja con el albarán."
+      }
+    },
+    {
+      "mention": "No conformidad",
+      "type": "entity",
+      "name": "No conformidad",
+      "description": "Registro de un incumplimiento de calidad detectado en producción, recepción o reclamación de cliente.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "1.1"
+        },
+        "excerpt": "Toda desviación de calidad se registra como no conformidad con su origen, alcance y acción correctiva."
+      }
+    },
+    {
+      "mention": "Muestra de calidad",
+      "type": "entity",
+      "name": "Muestra de calidad",
+      "description": "Cajas apartadas de una tirada para el control de calidad y su archivo posterior.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "1.2"
+        },
+        "excerpt": "De cada tirada se apartan muestras identificadas con el número de orden de fabricación."
+      }
+    },
+    {
+      "mention": "Plancha de cartón",
+      "type": "entity",
+      "name": "Plancha de cartón",
+      "description": "Plancha ondulada resultante del proceso de ondulado, materia prima del troquelado.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "1.3"
+        },
+        "excerpt": "La plancha de cartón ondulado se identifica por calidad, gramaje total y medidas."
+      }
+    },
+    {
+      "mention": "Caja troquelada",
+      "type": "entity",
+      "name": "Caja troquelada",
+      "description": "Producto terminado: caja cortada, hendida y en su caso impresa, lista para plegado.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "1.4"
+        },
+        "excerpt": "La caja troquelada debe respetar las medidas del plano del troquel dentro de la tolerancia dimensional."
+      }
+    },
+    {
+      "mention": "Gestión de no conformidades",
+      "type": "process",
+      "name": "Gestión de no conformidades",
+      "description": "Apertura, análisis de causa, acción correctiva y cierre de las no conformidades.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "1.5"
+        },
+        "excerpt": "Cada no conformidad tiene un responsable, una causa raíz documentada y una acción correctiva con plazo."
+      }
+    },
+    {
+      "mention": "Auditoría interna de calidad",
+      "type": "process",
+      "name": "Auditoría interna de calidad",
+      "description": "Auditoría semestral del sistema de calidad: procesos, registros y no conformidades abiertas.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "1.6"
+        },
+        "excerpt": "Dos veces al año se audita internamente el sistema: muestreos, registros de tirada y estado de las no conformidades."
+      }
+    },
+    {
+      "mention": "Rechazo por delaminación",
+      "type": "rule",
+      "name": "Rechazo por delaminación",
+      "description": "Una plancha o caja con delaminación visible del ondulado se rechaza sin excepción.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "2.1"
+        },
+        "excerpt": "La delaminación del canal es defecto crítico: la unidad afectada se rechaza y se revisa el lote completo."
+      }
+    },
+    {
+      "mention": "Tolerancia dimensional de troquel",
+      "type": "rule",
+      "name": "Tolerancia dimensional de troquel",
+      "description": "Las medidas de la caja troquelada no pueden desviarse más de 1,5 mm de las del plano.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "2.2"
+        },
+        "excerpt": "Se admite una desviación máxima de ±1,5 mm respecto al plano del troquel; superada, la tirada se detiene."
+      }
+    },
+    {
+      "mention": "Muestreo mínimo por tirada",
+      "type": "rule",
+      "name": "Muestreo mínimo por tirada",
+      "description": "De cada tirada se controlan al menos 5 cajas: primera, última y tres intermedias aleatorias.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "2.3"
+        },
+        "excerpt": "El muestreo mínimo es de cinco cajas por tirada: la primera, la última y tres intermedias tomadas al azar."
+      }
+    },
+    {
+      "mention": "Retención de muestras de calidad",
+      "type": "rule",
+      "name": "Retención de muestras de calidad",
+      "description": "Las muestras de cada tirada se archivan durante un año por trazabilidad.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "2.4"
+        },
+        "excerpt": "Las muestras se conservan doce meses identificadas por orden de fabricación, por si hay reclamación del cliente."
+      }
+    },
+    {
+      "mention": "Cierre de no conformidad en plazo",
+      "type": "rule",
+      "name": "Cierre de no conformidad en plazo",
+      "description": "Toda no conformidad debe cerrarse con acción correctiva verificada en un máximo de 30 días.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "2.5"
+        },
+        "excerpt": "El plazo máximo de cierre es de treinta días; pasado el plazo, la no conformidad escala al comité de calidad."
+      }
+    },
+    {
+      "mention": "Merma máxima por humedad",
+      "type": "rule",
+      "name": "Merma máxima por humedad",
+      "description": "Una bobina almacenada con humedad relativa fuera de rango se aparta si su merma estimada supera el 3%.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "2.6"
+        },
+        "excerpt": "Si la humedad del almacén sale de rango, las bobinas expuestas se revisan y se apartan cuando la merma estimada supera el 3%."
+      }
+    },
+    {
+      "mention": "Trazabilidad de tirada",
+      "type": "policy",
+      "name": "Trazabilidad de tirada",
+      "description": "Cada caja servida debe poder rastrearse hasta su tirada, bobina de origen y controles superados.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "3.1"
+        },
+        "excerpt": "La trazabilidad es total: de la caja al número de tirada, de la tirada a la bobina y de la bobina al proveedor."
+      }
+    },
+    {
+      "mention": "Jefe de calidad",
+      "type": "role",
+      "name": "Jefe de calidad",
+      "description": "Persona que mantiene el sistema de calidad, las auditorías y el cierre de no conformidades.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "3.2"
+        },
+        "excerpt": "El jefe de calidad preside el comité mensual y firma el cierre de cada no conformidad."
+      }
+    },
+    {
+      "mention": "Reclamación",
+      "type": "entity",
+      "name": "Reclamación",
+      "description": "Queja formal de un cliente por calidad, plazo o cantidad servida.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "3.3"
+        },
+        "excerpt": "Toda reclamación de cliente se registra el mismo día y se vincula al pedido y a la tirada afectada."
+      }
+    },
+    {
+      "mention": "No conformidad abierta",
+      "type": "event",
+      "name": "No conformidad abierta",
+      "description": "Se ha registrado una nueva no conformidad en el sistema de calidad.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "3.4"
+        },
+        "excerpt": "La apertura de una no conformidad notifica automáticamente al responsable del proceso afectado."
+      }
+    },
+    {
+      "mention": "Troqueladora",
+      "type": "entity",
+      "name": "Troqueladora",
+      "description": "Máquina de troquelado plano que corta y hiende las planchas con el troquel montado.",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "1.1"
+        },
+        "excerpt": "La troqueladora plana admite formatos hasta 1.600 mm y registra horas de uso por contador."
+      }
+    },
+    {
+      "mention": "Onduladora",
+      "type": "entity",
+      "name": "Onduladora",
+      "description": "Máquina que fabrica la plancha de cartón ondulado a partir de bobinas de papel.",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "1.2"
+        },
+        "excerpt": "La onduladora combina liner y tripa a partir de tres portabobinas y produce plancha en continuo."
+      }
+    },
+    {
+      "mention": "Parte de mantenimiento",
+      "type": "entity",
+      "name": "Parte de mantenimiento",
+      "description": "Registro de una intervención de mantenimiento: máquina, tipo, horas y repuestos.",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "1.3"
+        },
+        "excerpt": "Toda intervención, preventiva o por avería, genera su parte de mantenimiento firmado."
+      }
+    },
+    {
+      "mention": "Mantenimiento preventivo",
+      "type": "process",
+      "name": "Mantenimiento preventivo",
+      "description": "Intervenciones planificadas por horas de uso o calendario para evitar averías.",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "1.4"
+        },
+        "excerpt": "El preventivo se planifica por contador de horas o por calendario, lo que antes venza."
+      }
+    },
+    {
+      "mention": "Reparación de averías",
+      "type": "process",
+      "name": "Reparación de averías",
+      "description": "Intervención correctiva no planificada tras la avería de una máquina.",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "1.5"
+        },
+        "excerpt": "Ante avería, el técnico abre parte, diagnostica y repara; la máquina no vuelve a producción sin su firma."
+      }
+    },
+    {
+      "mention": "Cambio de troquel",
+      "type": "process",
+      "name": "Cambio de troquel",
+      "description": "Sustitución del troquel en máquina entre tiradas, con ajuste y prueba de primera caja.",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "1.6"
+        },
+        "excerpt": "El cambio de troquel incluye limpieza de platina, montaje, ajuste de presión y validación de la primera caja."
+      }
+    },
+    {
+      "mention": "Ondulado",
+      "type": "process",
+      "name": "Ondulado",
+      "description": "Fabricación de plancha de cartón ondulado a partir de bobinas de papel.",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "2.1"
+        },
+        "excerpt": "El ondulado transforma bobinas de liner y tripa en plancha según la receta de calidad."
+      }
+    },
+    {
+      "mention": "Calibración de troqueladora",
+      "type": "process",
+      "name": "Calibración de troqueladora",
+      "description": "Ajuste periódico de presiones y registros de la troqueladora contra patrón.",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "2.2"
+        },
+        "excerpt": "La calibración trimestral ajusta presión de corte y registro de impresión contra plancha patrón."
+      }
+    },
+    {
+      "mention": "Parada por horas de uso de troqueladora",
+      "type": "rule",
+      "name": "Parada por horas de uso de troqueladora",
+      "description": "La troqueladora se detiene para preventivo cada 400 horas de uso registradas por contador.",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "2.3"
+        },
+        "excerpt": "Cada 400 horas de contador, la troqueladora se para para su preventivo; el arranque posterior requiere firma del técnico."
+      }
+    },
+    {
+      "mention": "Frecuencia de engrase de onduladora",
+      "type": "rule",
+      "name": "Frecuencia de engrase de onduladora",
+      "description": "Los rodamientos de la onduladora se engrasan cada semana natural, con registro en el parte.",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "2.4"
+        },
+        "excerpt": "El engrase semanal de rodamientos es obligatorio y queda registrado en el parte de mantenimiento."
+      }
+    },
+    {
+      "mention": "Mantenimiento preventivo planificado",
+      "type": "policy",
+      "name": "Mantenimiento preventivo planificado",
+      "description": "El mantenimiento se planifica; la avería es la excepción y se analiza siempre a posteriori.",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "2.5"
+        },
+        "excerpt": "La política de la planta es preventiva: toda avería repetida obliga a revisar el plan de mantenimiento de esa máquina."
+      }
+    },
+    {
+      "mention": "Técnico de mantenimiento",
+      "type": "role",
+      "name": "Técnico de mantenimiento",
+      "description": "Persona que ejecuta preventivos, repara averías y firma los partes de mantenimiento.",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "2.6"
+        },
+        "excerpt": "El técnico de mantenimiento firma cada parte y autoriza el arranque tras cada intervención."
+      }
+    },
+    {
+      "mention": "Avería de máquina",
+      "type": "event",
+      "name": "Avería de máquina",
+      "description": "Parada no planificada de una máquina de producción por fallo mecánico o eléctrico.",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "3.1"
+        },
+        "excerpt": "La avería se comunica de inmediato al técnico de guardia y detiene la planificación de la máquina."
+      }
+    },
+    {
+      "mention": "Turno",
+      "type": "entity",
+      "name": "Turno",
+      "description": "Franja de trabajo de producción: mañana, tarde o noche, con su equipo asignado.",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "1.1"
+        },
+        "excerpt": "La planta trabaja a tres turnos de lunes a viernes; el de noche solo en campaña."
+      }
+    },
+    {
+      "mention": "Parte de horas",
+      "type": "entity",
+      "name": "Parte de horas",
+      "description": "Registro diario de horas ordinarias y extraordinarias de cada operario.",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "1.2"
+        },
+        "excerpt": "El parte de horas se cierra a diario y es la base de la nómina y del control de horas extra."
+      }
+    },
+    {
+      "mention": "Cuadrante de turnos",
+      "type": "process",
+      "name": "Cuadrante de turnos",
+      "description": "Elaboración mensual del cuadrante: asignación de operarios a turnos y máquinas.",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "1.3"
+        },
+        "excerpt": "El cuadrante se publica antes del día 25 del mes anterior y respeta los descansos legales."
+      }
+    },
+    {
+      "mention": "Registro de partes de horas",
+      "type": "process",
+      "name": "Registro de partes de horas",
+      "description": "Recogida y validación diaria de los partes de horas de todos los operarios.",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "1.4"
+        },
+        "excerpt": "Los partes se validan a diario; las horas extra requieren visto bueno previo del jefe de producción."
+      }
+    },
+    {
+      "mention": "Descanso mínimo entre turnos",
+      "type": "rule",
+      "name": "Descanso mínimo entre turnos",
+      "description": "Entre el final de un turno y el inicio del siguiente deben mediar al menos 12 horas.",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "1.5"
+        },
+        "excerpt": "Ningún operario puede encadenar turnos sin un descanso mínimo de doce horas entre ambos."
+      }
+    },
+    {
+      "mention": "Máximo de horas extra mensuales",
+      "type": "rule",
+      "name": "Máximo de horas extra mensuales",
+      "description": "Ningún operario puede superar las 15 horas extraordinarias en un mes natural.",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "1.6"
+        },
+        "excerpt": "El tope de horas extraordinarias es de quince al mes; superado, el parte se rechaza automáticamente."
+      }
+    },
+    {
+      "mention": "Prevención de riesgos laborales",
+      "type": "policy",
+      "name": "Prevención de riesgos laborales",
+      "description": "Política de seguridad de la planta: formación, equipos de protección y procedimientos seguros.",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "2.1"
+        },
+        "excerpt": "La seguridad prima sobre la producción: cualquier operario puede detener una operación insegura."
+      }
+    },
+    {
+      "mention": "Responsable de RRHH",
+      "type": "role",
+      "name": "Responsable de RRHH",
+      "description": "Persona que gestiona cuadrantes, partes de horas, nómina y formación.",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "2.2"
+        },
+        "excerpt": "El responsable de RRHH publica el cuadrante y custodia los registros horarios."
+      }
+    },
+    {
+      "mention": "Operario de troquelado",
+      "type": "role",
+      "name": "Operario de troquelado",
+      "description": "Operario de la sección de troquelado: maneja la troqueladora y realiza el cambio de troquel.",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "2.3"
+        },
+        "excerpt": "El operario de troquelado maneja la máquina, cambia troqueles y toma las muestras de calidad de su tirada."
+      }
+    },
+    {
+      "mention": "Fin de turno",
+      "type": "event",
+      "name": "Fin de turno",
+      "description": "Cierre de una franja de trabajo con el relevo del turno entrante.",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "2.4"
+        },
+        "excerpt": "Al fin de turno, el saliente registra su parte y transmite las incidencias al entrante."
+      }
+    },
+    {
+      "mention": "Residuo de cartón",
+      "type": "entity",
+      "name": "Residuo de cartón",
+      "description": "Recorte y merma de cartón generados por ondulado y troquelado, destinados a reciclaje.",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "1.1"
+        },
+        "excerpt": "El recorte de troquelado y la merma de ondulado se compactan y venden como residuo valorizable."
+      }
+    },
+    {
+      "mention": "Gestión de residuos",
+      "type": "process",
+      "name": "Gestión de residuos",
+      "description": "Segregación, compactado, pesaje y retirada de los residuos de la planta.",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "1.2"
+        },
+        "excerpt": "Los residuos se segregan en origen, se compactan y se retiran por gestor autorizado con pesaje documentado."
+      }
+    },
+    {
+      "mention": "Renovación del certificado FSC",
+      "type": "process",
+      "name": "Renovación del certificado FSC",
+      "description": "Auditoría anual de cadena de custodia para mantener vigente el certificado FSC.",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "1.3"
+        },
+        "excerpt": "La renovación FSC exige superar la auditoría anual de cadena de custodia y mantener los registros de compra."
+      }
+    },
+    {
+      "mention": "Separación de residuos por tipo",
+      "type": "rule",
+      "name": "Separación de residuos por tipo",
+      "description": "Los residuos se separan en origen: cartón, plástico de flejado, tintas y peligrosos.",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "1.4"
+        },
+        "excerpt": "Está prohibido mezclar fracciones: cada residuo va a su contenedor identificado desde el punto de generación."
+      }
+    },
+    {
+      "mention": "Porcentaje mínimo de fibra reciclada",
+      "type": "rule",
+      "name": "Porcentaje mínimo de fibra reciclada",
+      "description": "Las calidades estándar de plancha deben incorporar al menos un 70% de fibra reciclada.",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "1.5"
+        },
+        "excerpt": "Salvo pedido con requisito específico, la plancha estándar se fabrica con un mínimo del 70% de fibra reciclada."
+      }
+    },
+    {
+      "mention": "Sostenibilidad y reciclaje",
+      "type": "policy",
+      "name": "Sostenibilidad y reciclaje",
+      "description": "Compromiso ambiental de la planta: maximizar fibra reciclada y valorizar todos los residuos.",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "1.6"
+        },
+        "excerpt": "Acme se compromete a valorizar el 100% de su residuo de cartón y a maximizar la fibra reciclada en sus calidades."
+      }
+    },
+    {
+      "mention": "Residuo retirado",
+      "type": "event",
+      "name": "Residuo retirado",
+      "description": "El gestor autorizado ha retirado y pesado un contenedor de residuo.",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "2.1"
+        },
+        "excerpt": "Cada retirada queda documentada con albarán del gestor y pesaje de báscula."
+      }
+    },
+    {
+      "mention": "Certificado caducado",
+      "type": "event",
+      "name": "Certificado caducado",
+      "description": "Un certificado obligatorio (FSC u homologación de proveedor) ha llegado a su fecha de caducidad.",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "2.2"
+        },
+        "excerpt": "El sistema avisa 60 días antes de la caducidad de cualquier certificado registrado."
+      }
+    },
+    {
+      "mention": "Revisión anual de tarifas",
+      "type": "process",
+      "name": "Revisión anual de tarifas",
+      "description": "Actualización anual de la tarifa general según coste del papel y estudio de mercado.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-comercial",
+          "title": "Manual comercial",
+          "section": "1.1"
+        },
+        "excerpt": "La tarifa general se revisa cada enero con el coste medio del papel del semestre anterior."
+      }
+    },
+    {
+      "mention": "Ajuste de tarifa por coste de papel",
+      "type": "rule",
+      "name": "Ajuste de tarifa por coste de papel",
+      "description": "Si el coste del papel varía más de un 8% desde la última revisión, la tarifa se actualiza fuera de ciclo.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-comercial",
+          "title": "Manual comercial",
+          "section": "1.2"
+        },
+        "excerpt": "Una variación del coste del papel superior al 8% obliga a actualizar la tarifa sin esperar a la revisión anual."
+      }
+    },
+    {
+      "mention": "Revisión anual de precios",
+      "type": "policy",
+      "name": "Revisión anual de precios",
+      "description": "Los precios se revisan de forma ordenada una vez al año, con excepciones tasadas.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-comercial",
+          "title": "Manual comercial",
+          "section": "1.3"
+        },
+        "excerpt": "La empresa revisa precios una vez al año; solo la cláusula de coste de papel permite revisiones extraordinarias."
+      }
+    },
+    {
+      "mention": "Descuento por volumen",
+      "type": "rule",
+      "name": "Descuento por volumen",
+      "description": "Descuento aplicado sobre el precio unitario a partir de un umbral de cantidad por línea.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-comercial",
+          "title": "Manual comercial",
+          "section": "1.4"
+        },
+        "excerpt": "El descuento por volumen vigente es del 10% a partir de 8.000 unidades por línea; la tabla anterior (8% desde 5.000) queda sin efecto desde enero de 2026."
+      }
+    },
+    {
+      "mention": "Línea de pedido",
+      "type": "entity",
+      "name": "Línea de pedido",
+      "description": "Línea de un pedido de venta: referencia, cantidad y precio unitario.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-comercial",
+          "title": "Manual comercial",
+          "section": "1.5"
+        },
+        "excerpt": "El descuento por volumen se calcula línea a línea, nunca sobre el total del pedido."
+      }
+    },
+    {
+      "mention": "Crédito controlado por cliente",
+      "type": "policy",
+      "name": "Crédito controlado por cliente",
+      "description": "Todo cliente tiene un límite de crédito asignado y revisado periódicamente; el riesgo vivo no puede superarlo.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "1.1"
+        },
+        "excerpt": "Ningún cliente puede acumular más riesgo vivo que su límite asignado; los límites se revisan al menos una vez al año."
+      }
+    },
+    {
+      "mention": "Retención documental",
+      "type": "policy",
+      "name": "Retención documental",
+      "description": "Facturas, albaranes y partes se conservan el plazo legal: seis años los contables, uno los operativos.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "1.2"
+        },
+        "excerpt": "La documentación contable se conserva seis años; los registros operativos, al menos doce meses."
+      }
+    },
+    {
+      "mention": "Contable",
+      "type": "role",
+      "name": "Contable",
+      "description": "Persona que asienta facturas y abonos, concilia cobros y prepara el cierre mensual.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "1.3"
+        },
+        "excerpt": "El contable ejecuta el cierre mensual y responde de la conciliación bancaria."
+      }
+    },
+    {
+      "mention": "Reclamación de impagos",
+      "type": "process",
+      "name": "Reclamación de impagos",
+      "description": "Avisos y llamadas por facturas vencidas hasta su cobro o escalado.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "1.4"
+        },
+        "excerpt": "Administración reclama los vencidos con tres avisos escalonados antes de pasar el expediente a jurídico."
+      }
+    },
+    {
+      "mention": "Cierre contable mensual",
+      "type": "process",
+      "name": "Cierre contable mensual",
+      "description": "Conciliación y asiento del mes: facturas, abonos, cobros y provisiones.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "1.5"
+        },
+        "excerpt": "El cierre se completa antes del día 10 del mes siguiente, con todas las facturas y abonos asentados."
+      }
+    },
+    {
+      "mention": "Emisión de abonos",
+      "type": "process",
+      "name": "Emisión de abonos",
+      "description": "Emisión de rectificativas por devoluciones o errores, con aprobación previa.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "1.6"
+        },
+        "excerpt": "Todo abono requiere motivo tasado y visto bueno de administración antes de su emisión."
+      }
+    },
+    {
+      "mention": "Elaboración de presupuestos",
+      "type": "process",
+      "name": "Elaboración de presupuestos",
+      "description": "Confección de ofertas con tarifa vigente, amortización de troquel y margen.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-comercial",
+          "title": "Manual comercial",
+          "section": "1.6"
+        },
+        "excerpt": "El presupuesto parte de la tarifa vigente; cualquier descuento adicional se rige por los límites del comercial."
+      }
+    },
+    {
+      "mention": "Tarifa",
+      "type": "entity",
+      "name": "Tarifa",
+      "description": "Lista de precios vigente por calidad y tramo de cantidad.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-comercial",
+          "title": "Manual comercial",
+          "section": "2.1"
+        },
+        "excerpt": "La tarifa vigente es la única base admitida para presupuestar."
+      }
+    },
+    {
+      "mention": "Proveedor",
+      "type": "entity",
+      "name": "Proveedor",
+      "description": "Suministrador de materia prima sujeto a homologación y evaluación anual.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "4.3"
+        },
+        "excerpt": "Los proveedores de papel se clasifican por calidad servida y cumplimiento de plazos."
+      }
+    },
+    {
+      "mention": "Factura vencida",
+      "type": "event",
+      "name": "Factura vencida",
+      "description": "Una factura ha superado su vencimiento sin cobro registrado.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "2.1"
+        },
+        "excerpt": "El listado de vencidos se revisa a diario en administración."
+      }
+    },
+    {
+      "mention": "Comercial",
+      "type": "role",
+      "name": "Comercial",
+      "description": "Rol que capta pedidos, presupuesta y negocia condiciones dentro de sus límites.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-comercial",
+          "title": "Manual comercial",
+          "section": "2.2"
+        },
+        "excerpt": "El comercial presupuesta con la tarifa vigente y no puede rebasar su descuento máximo autorizado."
+      }
+    },
+    {
+      "mention": "Administración",
+      "type": "role",
+      "name": "Administración",
+      "description": "Rol responsable de facturación, cobros y reclamación de vencidos.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "2.2"
+        },
+        "excerpt": "Administración emite la facturación mensual y gestiona la reclamación de impagos."
+      }
+    },
+    {
+      "mention": "Carga máxima por camión",
+      "type": "rule",
+      "name": "Carga máxima por camión",
+      "description": "La carga de una ruta no puede superar la capacidad del vehículo asignado.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "3.1"
+        },
+        "excerpt": "Por seguridad vial, la carga por camión no supera nunca la capacidad homologada del vehículo."
+      }
+    },
+    {
+      "mention": "Tolerancia de gramaje en recepción",
+      "type": "rule",
+      "name": "Tolerancia de gramaje en recepción",
+      "description": "La bobina cuyo gramaje medido se desvía más de la tolerancia se devuelve al proveedor.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "4.4"
+        },
+        "excerpt": "La desviación de gramaje admitida en recepción es del 4%; por encima, la entrega se rechaza."
+      }
+    },
+    {
+      "mention": "Bobina",
+      "type": "entity",
+      "name": "Bobina",
+      "description": "Bobina de papel, materia prima del ondulado.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "4.5"
+        },
+        "excerpt": "Las bobinas se almacenan en vertical, protegidas de la humedad, y rotan por orden de entrada."
+      }
+    },
+    {
+      "mention": "FIFO de bobinas por antigüedad",
+      "type": "rule",
+      "name": "FIFO de bobinas por antigüedad",
+      "description": "Consumo de bobinas por orden estricto de entrada.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "4.6"
+        },
+        "excerpt": "El almacén sirve siempre la bobina más antigua de cada gramaje; el SGA lo impone."
+      }
+    },
+    {
+      "mention": "Bloqueo de proveedor no homologado",
+      "type": "rule",
+      "name": "Bloqueo de proveedor no homologado",
+      "description": "No se emiten órdenes de compra a proveedores sin homologación vigente.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "5.1"
+        },
+        "excerpt": "El sistema no permite emitir órdenes a proveedores fuera del listado de homologados."
+      }
+    },
+    {
+      "mention": "Albarán",
+      "type": "entity",
+      "name": "Albarán",
+      "description": "Documento de entrega firmado por el cliente en destino.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "3.2"
+        },
+        "excerpt": "El albarán firmado es imprescindible para facturar la entrega."
+      }
+    },
+    {
+      "mention": "Troquel",
+      "type": "entity",
+      "name": "Troquel",
+      "description": "Herramienta de corte, propiedad del cliente o de Acme, con vida útil controlada.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "7.2"
+        },
+        "excerpt": "Los troqueles se almacenan identificados y su estado se revisa tras cada tirada."
+      }
+    },
+    {
+      "mention": "Aprovisionamiento de bobinas",
+      "type": "process",
+      "name": "Aprovisionamiento de bobinas",
+      "description": "Compra de bobinas a proveedores homologados según necesidades del MRP.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "5.2"
+        },
+        "excerpt": "Las propuestas de compra del MRP se revisan y firman antes de su envío al proveedor."
+      }
+    },
+    {
+      "mention": "Recepción de bobinas",
+      "type": "process",
+      "name": "Recepción de bobinas",
+      "description": "Control de entrada y ubicación de las bobinas entregadas.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "5.3"
+        },
+        "excerpt": "Toda entrega de bobinas pasa control de gramaje, humedad y aspecto antes de ubicarse."
+      }
+    },
+    {
+      "mention": "Inventario cíclico",
+      "type": "process",
+      "name": "Inventario cíclico",
+      "description": "Recuento rotativo para cuadrar stock físico y sistema.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "3.3"
+        },
+        "excerpt": "El recuento cíclico cubre todas las ubicaciones al menos una vez por trimestre."
+      }
+    },
+    {
+      "mention": "Picking de expedición",
+      "type": "process",
+      "name": "Picking de expedición",
+      "description": "Preparación de palets de pedido para su carga.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "3.4"
+        },
+        "excerpt": "El picking sigue estrictamente la cola del SGA, que antepone los pedidos urgentes."
+      }
+    },
+    {
+      "mention": "Planificación de rutas de reparto",
+      "type": "process",
+      "name": "Planificación de rutas de reparto",
+      "description": "Asignación de entregas a rutas y transportistas.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "3.5"
+        },
+        "excerpt": "Las rutas se agrupan por zonas de código postal para reducir kilómetros en vacío."
+      }
+    },
+    {
+      "mention": "Carga de camión",
+      "type": "process",
+      "name": "Carga de camión",
+      "description": "Carga verificada de los palets de una ruta.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "3.6"
+        },
+        "excerpt": "La carga se hace por orden inverso de reparto y con doble verificación."
+      }
+    },
+    {
+      "mention": "Control de límite de crédito",
+      "type": "process",
+      "name": "Control de límite de crédito",
+      "description": "Recálculo del riesgo vivo por cliente.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "2.3"
+        },
+        "excerpt": "El riesgo vivo se recalcula con cada factura emitida y cada cobro registrado."
+      }
+    },
+    {
+      "mention": "Bloqueo por límite de crédito excedido",
+      "type": "rule",
+      "name": "Bloqueo por límite de crédito excedido",
+      "description": "Ningún pedido puede hacer superar al cliente su límite de crédito.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "2.4"
+        },
+        "excerpt": "Los pedidos que superen el límite de crédito del cliente quedan retenidos hasta su regularización."
+      }
+    },
+    {
+      "mention": "Control de calidad de tirada",
+      "type": "process",
+      "name": "Control de calidad de tirada",
+      "description": "Inspección por muestreo de cada tirada de troquelado.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "7.3"
+        },
+        "excerpt": "El control de tirada verifica medidas, hendidos, impresión y ausencia de delaminación."
+      }
+    },
+    {
+      "mention": "Gestión de reclamaciones",
+      "type": "process",
+      "name": "Gestión de reclamaciones",
+      "description": "Atención y resolución de las reclamaciones de clientes.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "7.4"
+        },
+        "excerpt": "La reclamación se responde en 48 horas y, si procede, abre no conformidad y abono."
+      }
+    },
+    {
+      "mention": "Calidad obligatoria por tirada",
+      "type": "policy",
+      "name": "Calidad obligatoria por tirada",
+      "description": "Ninguna tirada se sirve sin su control de calidad registrado.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "7.5"
+        },
+        "excerpt": "No se expide producto de una tirada sin control de calidad firmado."
+      }
+    },
+    {
+      "mention": "Troquelado",
+      "type": "process",
+      "name": "Troquelado",
+      "description": "Corte y hendido de planchas con troquel en máquina.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "7.6"
+        },
+        "excerpt": "El troquelado se planifica por órdenes de fabricación agrupadas por calidad."
+      }
+    },
+    {
+      "mention": "Fin de mes",
+      "type": "event",
+      "name": "Fin de mes",
+      "description": "Cierre del periodo mensual de facturación.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "2.5"
+        },
+        "excerpt": "El fin de mes dispara la facturación agrupada y el posterior cierre contable."
+      }
+    },
+    {
+      "mention": "Facturación mensual",
+      "type": "process",
+      "name": "Facturación mensual",
+      "description": "Emisión de facturas agrupadas del mes.",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "2.6"
+        },
+        "excerpt": "La facturación agrupa los albaranes firmados del mes por cliente."
+      }
+    }
+  ],
+  "edges": [
+    {
+      "type": "GOVERNS",
+      "source_mention": "Homologación obligatoria de proveedores",
+      "target_mention": "Bloqueo de proveedor no homologado",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "2.2"
+        },
+        "excerpt": "El sistema de compras impide emitir órdenes a proveedores no homologados en aplicación de esta política."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Homologación obligatoria de proveedores",
+      "target_mention": "Homologación de proveedor",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "2.3"
+        },
+        "excerpt": "El proceso de homologación desarrolla esta política y es requisito previo a cualquier compra."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Caducidad de certificado de proveedor",
+      "target_mention": "Proveedor",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "2.4"
+        },
+        "excerpt": "Un certificado caducado suspende al proveedor: no puede recibir órdenes hasta acreditar la renovación."
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "Caducidad de certificado de proveedor",
+      "target_mention": "Proveedor",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "2.5"
+        },
+        "excerpt": "La suspensión se anota en la ficha del proveedor y se comunica por el portal."
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "Certificado caducado",
+      "target_mention": "Homologación de proveedor",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "2.6"
+        },
+        "excerpt": "La caducidad de un certificado obliga a repetir la parte documental de la homologación."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Responsable de compras",
+      "target_mention": "Homologación de proveedor",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "3.1"
+        },
+        "excerpt": "La homologación la instruye y firma el responsable de compras."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Responsable de compras",
+      "target_mention": "Evaluación anual de proveedores",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "3.2"
+        },
+        "excerpt": "La evaluación anual es responsabilidad exclusiva del responsable de compras."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Responsable de compras",
+      "target_mention": "Aprovisionamiento de bobinas",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "3.3"
+        },
+        "excerpt": "Las órdenes de bobina que propone el MRP las revisa y firma el responsable de compras antes de su envío."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Evaluación anual de proveedores",
+      "target_mention": "Proveedor",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "3.4"
+        },
+        "excerpt": "La evaluación puntúa a cada proveedor homologado con los datos del año anterior."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Homologación de proveedor",
+      "target_mention": "Certificado FSC",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "3.5"
+        },
+        "excerpt": "Para papel con sello FSC, la homologación exige certificado de cadena de custodia vigente."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Tolerancia de gramaje en recepción",
+      "target_mention": "Recepción de bobinas",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "3.6"
+        },
+        "excerpt": "En recepción se mide el gramaje de cada bobina; una desviación superior a la tolerancia supone el rechazo de la entrega."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Rotación FIFO de materia prima",
+      "target_mention": "FIFO de bobinas por antigüedad",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "4.1"
+        },
+        "excerpt": "La regla FIFO del almacén aplica esta política de rotación de materia prima."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Rotación FIFO de materia prima",
+      "target_mention": "Inventario cíclico",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-compras",
+          "title": "Manual de compras",
+          "section": "4.2"
+        },
+        "excerpt": "El inventario cíclico verifica, entre otras cosas, que la rotación FIFO se está cumpliendo."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Responsable de logística",
+      "target_mention": "Planificación de rutas de reparto",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "1.4"
+        },
+        "excerpt": "La planificación diaria de rutas la ejecuta el responsable de logística con la propuesta del optimizador."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Jefe de almacén",
+      "target_mention": "Picking de expedición",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "1.5"
+        },
+        "excerpt": "El picking se realiza bajo la dirección del jefe de almacén siguiendo la cola del SGA."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Jefe de almacén",
+      "target_mention": "Inventario cíclico",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "1.6"
+        },
+        "excerpt": "El recuento cíclico semanal lo organiza y firma el jefe de almacén."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Jefe de almacén",
+      "target_mention": "Recepción de bobinas",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "2.1"
+        },
+        "excerpt": "La recepción de materia prima está a cargo del equipo de almacén y la firma su jefe."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Doble verificación de carga",
+      "target_mention": "Carga de camión",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "2.2"
+        },
+        "excerpt": "La carga no se da por terminada hasta completar la segunda verificación contra el albarán."
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "Doble verificación de carga",
+      "target_mention": "Albarán",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "2.3"
+        },
+        "excerpt": "El cotejo final se hace palet a palet contra las líneas del albarán."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Carga máxima por camión",
+      "target_mention": "Carga de camión",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "2.4"
+        },
+        "excerpt": "Está prohibido cargar por encima de la capacidad del vehículo aunque la ruta quede incompleta."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Prevención de riesgos laborales",
+      "target_mention": "Carga de camión",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "2.5"
+        },
+        "excerpt": "Las operaciones de carga se realizan conforme al plan de prevención: calzos, chaleco y carretilla autorizada."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Responsable de logística",
+      "target_mention": "Carga de camión",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-logistica",
+          "title": "Manual de logística",
+          "section": "2.6"
+        },
+        "excerpt": "El responsable de logística autoriza cada salida de camión una vez verificada la carga."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Trazabilidad de tirada",
+      "target_mention": "Muestreo mínimo por tirada",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "3.5"
+        },
+        "excerpt": "El muestreo por tirada es una de las garantías de la política de trazabilidad."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Trazabilidad de tirada",
+      "target_mention": "Gestión de no conformidades",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "3.6"
+        },
+        "excerpt": "La gestión de no conformidades exige poder rastrear el lote afectado; la trazabilidad lo hace posible."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Trazabilidad de tirada",
+      "target_mention": "Retención de muestras de calidad",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "4.1"
+        },
+        "excerpt": "El archivo de muestras materializa la trazabilidad hacia atrás durante un año."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Calidad obligatoria por tirada",
+      "target_mention": "Rechazo por delaminación",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "4.2"
+        },
+        "excerpt": "El rechazo por delaminación desarrolla la política de calidad por tirada para el defecto más grave del ondulado."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Rechazo por delaminación",
+      "target_mention": "Control de calidad de tirada",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "4.3"
+        },
+        "excerpt": "El control de tirada incluye la inspección de delaminación en las muestras tomadas."
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "Rechazo por delaminación",
+      "target_mention": "Plancha de cartón",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "4.4"
+        },
+        "excerpt": "La delaminación se inspecciona sobre la plancha y sobre la caja terminada."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Tolerancia dimensional de troquel",
+      "target_mention": "Caja troquelada",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "4.5"
+        },
+        "excerpt": "Las medidas de la caja se comprueban contra el plano en cada muestreo."
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "Tolerancia dimensional de troquel",
+      "target_mention": "Troquel",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "4.6"
+        },
+        "excerpt": "Una desviación repetida fuera de tolerancia obliga a revisar el estado del troquel."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Muestreo mínimo por tirada",
+      "target_mention": "Control de calidad de tirada",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "5.1"
+        },
+        "excerpt": "No hay control de tirada válido sin el muestreo mínimo de cinco cajas."
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "Muestreo mínimo por tirada",
+      "target_mention": "Muestra de calidad",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "5.2"
+        },
+        "excerpt": "Las cinco cajas del muestreo se registran como muestras de la tirada."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Retención de muestras de calidad",
+      "target_mention": "Muestra de calidad",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "5.3"
+        },
+        "excerpt": "Una muestra no archivada en plazo invalida el registro de la tirada."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Cierre de no conformidad en plazo",
+      "target_mention": "Gestión de no conformidades",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "5.4"
+        },
+        "excerpt": "El proceso no se considera conforme si alguna no conformidad supera el plazo de cierre."
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "Cierre de no conformidad en plazo",
+      "target_mention": "No conformidad",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "5.5"
+        },
+        "excerpt": "El plazo se cuenta desde la fecha de apertura registrada en la no conformidad."
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "No conformidad abierta",
+      "target_mention": "Gestión de no conformidades",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "5.6"
+        },
+        "excerpt": "La apertura arranca el ciclo de análisis de causa y acción correctiva."
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "Gestión de reclamaciones",
+      "target_mention": "No conformidad abierta",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "6.1"
+        },
+        "excerpt": "Toda reclamación de cliente con causa interna abre su no conformidad asociada."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Gestión de reclamaciones",
+      "target_mention": "Reclamación",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "6.2"
+        },
+        "excerpt": "El proceso se instruye sobre el registro de la reclamación y su tirada vinculada."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Jefe de calidad",
+      "target_mention": "Gestión de no conformidades",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "6.3"
+        },
+        "excerpt": "El jefe de calidad asigna el análisis de causa y firma cada cierre."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Jefe de calidad",
+      "target_mention": "Auditoría interna de calidad",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "6.4"
+        },
+        "excerpt": "Las auditorías internas las planifica y dirige el jefe de calidad."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Auditoría interna de calidad",
+      "target_mention": "No conformidad",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "6.5"
+        },
+        "excerpt": "La auditoría revisa el estado y los plazos de todas las no conformidades abiertas."
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "Merma máxima por humedad",
+      "target_mention": "Bobina",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "6.6"
+        },
+        "excerpt": "La merma estimada por humedad se anota sobre cada bobina afectada."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Merma máxima por humedad",
+      "target_mention": "Recepción de bobinas",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-calidad",
+          "title": "Manual de calidad",
+          "section": "7.1"
+        },
+        "excerpt": "En recepción se rechazan las bobinas cuya merma estimada por humedad supere el máximo."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Mantenimiento preventivo planificado",
+      "target_mention": "Mantenimiento preventivo",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "3.2"
+        },
+        "excerpt": "El proceso de preventivo desarrolla la política de mantenimiento planificado."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Mantenimiento preventivo planificado",
+      "target_mention": "Parada por horas de uso de troqueladora",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "3.3"
+        },
+        "excerpt": "La parada por horas es la aplicación de la política preventiva a la troqueladora."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Parada por horas de uso de troqueladora",
+      "target_mention": "Mantenimiento preventivo",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "3.4"
+        },
+        "excerpt": "El preventivo de la troqueladora se realiza a las 400 horas de contador; no se admite aplazarlo."
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "Parada por horas de uso de troqueladora",
+      "target_mention": "Troqueladora",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "3.5"
+        },
+        "excerpt": "El contador de horas de la troqueladora dispara la parada preventiva."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Frecuencia de engrase de onduladora",
+      "target_mention": "Mantenimiento preventivo",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "3.6"
+        },
+        "excerpt": "El engrase semanal forma parte del preventivo mínimo de la onduladora."
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "Frecuencia de engrase de onduladora",
+      "target_mention": "Onduladora",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "4.1"
+        },
+        "excerpt": "El engrase afecta a los rodamientos de los portabobinas y del puente."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Técnico de mantenimiento",
+      "target_mention": "Mantenimiento preventivo",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "4.2"
+        },
+        "excerpt": "Los preventivos los ejecuta el técnico de mantenimiento según el plan anual."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Técnico de mantenimiento",
+      "target_mention": "Reparación de averías",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "4.3"
+        },
+        "excerpt": "Las averías las atiende el técnico de guardia, que firma la vuelta a producción."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Técnico de mantenimiento",
+      "target_mention": "Calibración de troqueladora",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "4.4"
+        },
+        "excerpt": "La calibración trimestral la realiza el técnico con la plancha patrón."
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "Avería de máquina",
+      "target_mention": "Reparación de averías",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "4.5"
+        },
+        "excerpt": "La comunicación de avería abre el parte y moviliza al técnico de guardia."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Mantenimiento preventivo",
+      "target_mention": "Parte de mantenimiento",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "4.6"
+        },
+        "excerpt": "Sin parte firmado, el preventivo no se considera realizado."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Reparación de averías",
+      "target_mention": "Parte de mantenimiento",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "5.1"
+        },
+        "excerpt": "La reparación queda documentada en su parte, con causa y repuestos."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Troquelado",
+      "target_mention": "Troqueladora",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "5.2"
+        },
+        "excerpt": "No hay tirada sin troqueladora operativa y con preventivo al día."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Ondulado",
+      "target_mention": "Onduladora",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "5.3"
+        },
+        "excerpt": "El ondulado depende de la onduladora, única en la planta."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Ondulado",
+      "target_mention": "Bobina",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "5.4"
+        },
+        "excerpt": "El ondulado consume bobinas de liner y tripa según la receta de la calidad."
+      }
+    },
+    {
+      "type": "PART_OF",
+      "source_mention": "Cambio de troquel",
+      "target_mention": "Troquelado",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "5.5"
+        },
+        "excerpt": "El cambio de troquel es la fase inicial de cada tirada de troquelado."
+      }
+    },
+    {
+      "type": "PART_OF",
+      "source_mention": "Calibración de troqueladora",
+      "target_mention": "Mantenimiento preventivo",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "5.6"
+        },
+        "excerpt": "La calibración es una gama más dentro del preventivo de la troqueladora."
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "Ondulado",
+      "target_mention": "Troquelado",
+      "evidence": {
+        "locator": {
+          "doc_id": "plan-mantenimiento",
+          "title": "Plan de mantenimiento",
+          "section": "6.1"
+        },
+        "excerpt": "La plancha ondulada pasa a la sección de troquelado según la secuencia de órdenes."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Prevención de riesgos laborales",
+      "target_mention": "Cuadrante de turnos",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "2.5"
+        },
+        "excerpt": "El cuadrante debe respetar los descansos y límites que fija el plan de prevención."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Descanso mínimo entre turnos",
+      "target_mention": "Cuadrante de turnos",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "2.6"
+        },
+        "excerpt": "RRHH no publica un cuadrante que incumpla el descanso mínimo de doce horas."
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "Descanso mínimo entre turnos",
+      "target_mention": "Turno",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "3.1"
+        },
+        "excerpt": "El descanso se comprueba entre el fin de un turno y el inicio del siguiente asignado."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Máximo de horas extra mensuales",
+      "target_mention": "Registro de partes de horas",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "3.2"
+        },
+        "excerpt": "El registro rechaza el parte que haga superar el tope mensual de horas extra."
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "Máximo de horas extra mensuales",
+      "target_mention": "Parte de horas",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "3.3"
+        },
+        "excerpt": "El acumulado mensual se calcula sobre los partes de horas validados."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Responsable de RRHH",
+      "target_mention": "Cuadrante de turnos",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "3.4"
+        },
+        "excerpt": "El cuadrante lo elabora y publica el responsable de RRHH."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Responsable de RRHH",
+      "target_mention": "Registro de partes de horas",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "3.5"
+        },
+        "excerpt": "La validación diaria de partes corresponde a RRHH."
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "Fin de turno",
+      "target_mention": "Registro de partes de horas",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "3.6"
+        },
+        "excerpt": "El cierre de turno obliga a registrar el parte antes de abandonar la planta."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Operario de troquelado",
+      "target_mention": "Troquelado",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "4.1"
+        },
+        "excerpt": "La tirada la ejecuta el operario de troquelado asignado en el cuadrante."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Operario de troquelado",
+      "target_mention": "Cambio de troquel",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "4.2"
+        },
+        "excerpt": "El cambio de troquel lo realiza el propio operario de la máquina."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Cuadrante de turnos",
+      "target_mention": "Turno",
+      "evidence": {
+        "locator": {
+          "doc_id": "normativa-rrhh",
+          "title": "Normativa laboral interna",
+          "section": "4.3"
+        },
+        "excerpt": "El cuadrante asigna personas a los turnos definidos de la planta."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Sostenibilidad y reciclaje",
+      "target_mention": "Gestión de residuos",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "2.3"
+        },
+        "excerpt": "La gestión de residuos desarrolla el compromiso de valorización total."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Sostenibilidad y reciclaje",
+      "target_mention": "Porcentaje mínimo de fibra reciclada",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "2.4"
+        },
+        "excerpt": "El mínimo de fibra reciclada materializa la política en las calidades estándar."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Sostenibilidad y reciclaje",
+      "target_mention": "Renovación del certificado FSC",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "2.5"
+        },
+        "excerpt": "Mantener el certificado FSC vigente es un compromiso público de la política ambiental."
+      }
+    },
+    {
+      "type": "VALIDATES",
+      "source_mention": "Separación de residuos por tipo",
+      "target_mention": "Gestión de residuos",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "2.6"
+        },
+        "excerpt": "Una fracción mezclada invalida la retirada y se reprocesa como residuo no segregado."
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "Separación de residuos por tipo",
+      "target_mention": "Residuo de cartón",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "3.1"
+        },
+        "excerpt": "El cartón compactado no admite plástico de flejado ni tintas."
+      }
+    },
+    {
+      "type": "OPERATES_ON",
+      "source_mention": "Porcentaje mínimo de fibra reciclada",
+      "target_mention": "Bobina",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "3.2"
+        },
+        "excerpt": "El porcentaje de fibra reciclada se controla en la compra de bobinas por calidad."
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "Gestión de residuos",
+      "target_mention": "Residuo retirado",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "3.3"
+        },
+        "excerpt": "La retirada por el gestor cierra el ciclo de cada contenedor compactado."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Renovación del certificado FSC",
+      "target_mention": "Certificado FSC",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "3.4"
+        },
+        "excerpt": "La auditoría anual renueva la vigencia del certificado de cadena de custodia."
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "Certificado caducado",
+      "target_mention": "Renovación del certificado FSC",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "3.5"
+        },
+        "excerpt": "El aviso de caducidad arranca la preparación de la auditoría de renovación."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Gestión de residuos",
+      "target_mention": "Residuo de cartón",
+      "evidence": {
+        "locator": {
+          "doc_id": "politica-medioambiental",
+          "title": "Política medioambiental",
+          "section": "3.6"
+        },
+        "excerpt": "El grueso del volumen gestionado es el recorte de cartón de troquelado."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Revisión anual de precios",
+      "target_mention": "Revisión anual de tarifas",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-comercial",
+          "title": "Manual comercial",
+          "section": "2.3"
+        },
+        "excerpt": "La revisión anual de tarifas ejecuta la política de precios de la casa."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Revisión anual de precios",
+      "target_mention": "Ajuste de tarifa por coste de papel",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-comercial",
+          "title": "Manual comercial",
+          "section": "2.4"
+        },
+        "excerpt": "La cláusula de coste de papel es la única excepción admitida a la revisión anual."
+      }
+    },
+    {
+      "type": "CALCULATES",
+      "source_mention": "Ajuste de tarifa por coste de papel",
+      "target_mention": "Tarifa",
+      "attrs": {
+        "attribute": "precio_base"
+      },
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-comercial",
+          "title": "Manual comercial",
+          "section": "2.5"
+        },
+        "excerpt": "La tarifa se recalcula aplicando la variación del coste medio del papel."
+      }
+    },
+    {
+      "type": "DEPENDS_ON",
+      "source_mention": "Revisión anual de tarifas",
+      "target_mention": "Tarifa",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-comercial",
+          "title": "Manual comercial",
+          "section": "2.6"
+        },
+        "excerpt": "La revisión parte de la tarifa vigente y del coste medio del papel del semestre."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Comercial",
+      "target_mention": "Elaboración de presupuestos",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-comercial",
+          "title": "Manual comercial",
+          "section": "3.1"
+        },
+        "excerpt": "Los presupuestos los elabora el comercial de la cuenta con la tarifa vigente."
+      }
+    },
+    {
+      "type": "CALCULATES",
+      "source_mention": "Descuento por volumen",
+      "target_mention": "Línea de pedido",
+      "stance": "contradicts",
+      "attrs": {
+        "attribute": "precio_unitario"
+      },
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-comercial",
+          "title": "Manual comercial",
+          "section": "3.2"
+        },
+        "excerpt": "El descuento por volumen vigente es del 10% a partir de 8.000 unidades por línea; queda sin efecto la tabla anterior del 8% desde 5.000 unidades."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Crédito controlado por cliente",
+      "target_mention": "Bloqueo por límite de crédito excedido",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "3.1"
+        },
+        "excerpt": "El bloqueo de pedidos aplica la política de crédito controlado."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Crédito controlado por cliente",
+      "target_mention": "Control de límite de crédito",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "3.2"
+        },
+        "excerpt": "El recálculo periódico del riesgo desarrolla la política de crédito."
+      }
+    },
+    {
+      "type": "GOVERNS",
+      "source_mention": "Retención documental",
+      "target_mention": "Cierre contable mensual",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "3.3"
+        },
+        "excerpt": "El cierre archiva la documentación del mes conforme a los plazos de retención."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Contable",
+      "target_mention": "Cierre contable mensual",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "3.4"
+        },
+        "excerpt": "El cierre mensual lo ejecuta el contable antes del día 10."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Contable",
+      "target_mention": "Emisión de abonos",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "3.5"
+        },
+        "excerpt": "Los abonos los asienta el contable tras el visto bueno de administración."
+      }
+    },
+    {
+      "type": "EXECUTES",
+      "source_mention": "Administración",
+      "target_mention": "Reclamación de impagos",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "3.6"
+        },
+        "excerpt": "La reclamación de vencidos la lleva administración con tres avisos escalonados."
+      }
+    },
+    {
+      "type": "TRIGGERS",
+      "source_mention": "Factura vencida",
+      "target_mention": "Reclamación de impagos",
+      "evidence": {
+        "locator": {
+          "doc_id": "manual-administracion",
+          "title": "Manual de administración",
+          "section": "4.1"
+        },
+        "excerpt": "El listado diario de vencidos arranca la reclamación de cada factura."
+      }
+    }
+  ]
+}

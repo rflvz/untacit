@@ -1,0 +1,54 @@
+# untacit-server deployment (docs/06 §8.1, guide in docs/07).
+#
+#   docker compose up -d                    # plain HTTP on :8787 (TLS on your own proxy)
+#   docker compose --profile with-tls up -d # + Caddy with automatic TLS
+#
+# Layout on the host, next to this file:
+#   ./data/untacit-server.config.json   server config (see config.example.json)
+#   ./data/server.db                     created on first `user add`
+#   ./graphs/<graphId>/                  git clones of your graph repos
+#
+# Volumes are read-write on purpose: the server only ever writes the derived
+# index under <graph>/.untacit/ (docs/06 §2) and its own /data.
+#
+# Admin CLI:  docker compose exec untacit untacit-server user add ana
+
+services:
+  untacit:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: untacit-server
+    restart: unless-stopped
+    ports:
+      - '8787:8787'
+    volumes:
+      # The container runs as uid 1000 (USER node) and writes server.db under
+      # ./data and the derived index under ./graphs/<id>/.untacit. Make sure
+      # both belong to uid 1000 — `sudo chown -R 1000:1000 data graphs` — or the
+      # first boot fails with SQLITE_CANTOPEN (docs/07 §2).
+      - ./data:/data
+      - ./graphs:/graphs
+    environment:
+      # Must match the URL your users connect to (OAuth issuer). With the
+      # with-tls profile this is your Caddy domain.
+      UNTACIT_SERVER_PUBLIC_URL: ${UNTACIT_SERVER_PUBLIC_URL:-https://untacit.example.com}
+
+  caddy:
+    image: caddy:2
+    profiles:
+      - with-tls
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - untacit
+
+volumes:
+  caddy-data:
+  caddy-config:
