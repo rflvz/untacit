@@ -58,6 +58,13 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm --filter "@untacit/cli..." build
           mkdir -p smoke/data smoke/graphs
+          # One import = one commit, and on git >= 2.51 a commit can spawn a
+          # DETACHED auto-maintenance that keeps repacking (deleting loose
+          # object dirs) after the CLI exits — racing the chmod below into
+          # "cannot access .git/objects/...". Disable background maintenance
+          # on the runner so the fixture repo is quiescent when we chmod it.
+          git config --global gc.auto 0
+          git config --global maintenance.auto false
           node packages/cli/dist/bin.js init smoke/graphs/acme
           for b in examples/acme-manufactura/batches/*.json; do
             node packages/cli/dist/bin.js import "$b" --graph smoke/graphs/acme
