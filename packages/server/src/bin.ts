@@ -107,6 +107,13 @@ async function readPassword(opts: { passwordStdin?: boolean }, promptText: strin
   }
 }
 
+/** "acme(rw), logistica" — write-granted graphs are tagged. */
+function formatGrants(users: SqliteUserStore, userId: string): string {
+  const writable = new Set(users.writeGrants(userId));
+  const grants = users.grants(userId).map((g) => (writable.has(g) ? `${g}(rw)` : g));
+  return grants.length > 0 ? grants.join(', ') : 'no graphs';
+}
+
 function fail(err: unknown): never {
   console.error(`untacit-server: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
@@ -179,10 +186,9 @@ export function buildProgram(): Command {
             return;
           }
           for (const u of all) {
-            const grants = users.grants(u.id);
             const state = u.disabled ? ' [disabled]' : '';
             const name = u.displayName ? ` (${u.displayName})` : '';
-            console.log(`${u.username}${name}${state} → ${grants.length > 0 ? grants.join(', ') : 'no graphs'}`);
+            console.log(`${u.username}${name}${state} → ${formatGrants(users, u.id)}`);
           }
         } finally {
           db.close();
@@ -245,11 +251,13 @@ export function buildProgram(): Command {
     .command('grant')
     .argument('<username>')
     .argument('<graphId>')
-    .description('grant a user access to a graph')
-    .action((username: string, graphId: string) => {
+    .option('--write', 'also allow graph writes (import batches, review actions) — effective only on graphs configured with "write": true')
+    .description('grant a user access to a graph (re-granting sets the level: with --write upgrades, without it downgrades to read)')
+    .action((username: string, graphId: string, opts: { write?: boolean }) => {
       try {
         const config = tryLoadConfig(program);
-        if (config && !config.graphs.some((g) => g.id === graphId)) {
+        const graph = config?.graphs.find((g) => g.id === graphId);
+        if (config && !graph) {
           throw new Error(
             `graph "${graphId}" is not in the config (${config.graphs.map((g) => g.id).join(', ')})`,
           );
@@ -257,12 +265,18 @@ export function buildProgram(): Command {
         if (!config) {
           console.warn(`warning: no config file found — cannot verify that graph "${graphId}" exists`);
         }
+        if (opts.write === true && graph !== undefined && !graph.write) {
+          console.warn(
+            `warning: graph "${graphId}" is not write-enabled ("write": true in the config) — ` +
+              'the write grant is stored but has no effect until it is',
+          );
+        }
         const { db, users } = openStore(program);
         try {
           const target = users.getByUsername(username);
           if (!target) throw new Error(`User "${username}" not found`);
-          users.grant(target.id, graphId);
-          console.log(`${username} → ${graphId} granted`);
+          users.grant(target.id, graphId, { write: opts.write === true });
+          console.log(`${username} → ${graphId} granted${opts.write === true ? ' (write)' : ''}`);
         } finally {
           db.close();
         }
@@ -311,7 +325,7 @@ export function buildProgram(): Command {
             console.log('graphs:');
             for (const g of config.graphs) {
               const indexed = existsSync(join(g.path, '.untacit', 'index.db'));
-              console.log(`  ${g.id} (${g.name}) — ${g.path}${indexed ? '' : ' [no index yet]'} tools=${g.tools}`);
+              console.log(`  ${g.id} (${g.name}) — ${g.path}${indexed ? '' : ' [no index yet]'} tools=${g.tools}${g.write ? ' write=yes' : ''}`);
             }
           } else {
             console.log('config: not found (pass --config to include graph status)');
@@ -319,7 +333,7 @@ export function buildProgram(): Command {
           const all = users.list();
           console.log(`users: ${all.length}`);
           for (const u of all) {
-            console.log(`  ${u.username}${u.disabled ? ' [disabled]' : ''} → ${users.grants(u.id).join(', ') || 'no graphs'}`);
+            console.log(`  ${u.username}${u.disabled ? ' [disabled]' : ''} → ${formatGrants(users, u.id)}`);
           }
           const counts = db
             .prepare(

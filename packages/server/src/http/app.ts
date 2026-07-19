@@ -153,7 +153,7 @@ export function createHttpApp(
       const access = checkGraphAccess(config, users, req, res, graph);
       if (!access) return;
       void sessions
-        .handle(req, res, graph, access.userId)
+        .handle(req, res, graph, access.userId, access.canWrite)
         .then(() => {
           // A POST may have triggered a staleness reindex inside a tool call
           // — bring the semantic channel up to date (docs/06 §4.6).

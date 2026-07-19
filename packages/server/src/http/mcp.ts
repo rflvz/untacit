@@ -22,6 +22,8 @@ interface SessionEntry {
   server: McpServer;
   userId: string;
   graphId: string;
+  /** Write surface registered at initialize time (graph write + user grant). */
+  write: boolean;
   lastSeenMs: number;
 }
 
@@ -51,12 +53,28 @@ export class McpSessionManager {
   }
 
   /** Route one authenticated HTTP request to its session (or create one). */
-  async handle(req: Request, res: Response, graph: GraphEntry, userId: string): Promise<void> {
+  async handle(
+    req: Request,
+    res: Response,
+    graph: GraphEntry,
+    userId: string,
+    canWrite = false,
+  ): Promise<void> {
     const sessionId = req.headers['mcp-session-id'];
     if (typeof sessionId === 'string') {
       const entry = this.sessions.get(sessionId);
       // Foreign user or foreign graph → same 404 as unknown session.
       if (!entry || entry.userId !== userId || entry.graphId !== graph.id) {
+        rpcError(res, 404, -32001, 'Session not found');
+        return;
+      }
+      // A session initialized with the write surface must die the moment the
+      // write grant is revoked — same immediacy as the read-grant check. The
+      // 404 makes the client re-initialize and land on read-only tools. (An
+      // upgrade mid-session keeps the read-only session; re-initialize to
+      // pick up the write tools.)
+      if (entry.write && !canWrite) {
+        await this.destroy(entry, 'write grant revoked');
         rpcError(res, 404, -32001, 'Session not found');
         return;
       }
@@ -91,6 +109,7 @@ export class McpSessionManager {
       sessionId: '',
       userId,
       graphId: graph.id,
+      write: canWrite,
       lastSeenMs: Date.now(),
       transport: new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
@@ -104,9 +123,11 @@ export class McpSessionManager {
         },
       }),
       server: createMcpServer(graph.path, {
-        // Company server: read-only always; agent surface only if the graph
-        // is explicitly configured with its sources mounted (docs/06 §2).
+        // Agent surface only if the graph is explicitly configured with its
+        // extraction sources mounted (docs/06 §2); write surface only when
+        // the graph is write-enabled AND this user holds a write grant.
         agentSurface: graph.tools === 'agent',
+        write: canWrite,
       }),
     };
     await entry.server.connect(entry.transport);

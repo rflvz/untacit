@@ -4,7 +4,7 @@
   "host": "0.0.0.0",
   "port": 8787,
   "graphs": [
-    { "id": "acme", "name": "ACME Manufactura", "path": "/graphs/acme" }
+    { "id": "acme", "name": "ACME Manufactura", "path": "/graphs/acme", "write": false }
   ],
   "auth": { "accessTokenTtlSeconds": 3600, "refreshTokenTtlSeconds": 2592000 },
   "session": { "idleTimeoutMinutes": 30, "maxSessionsPerUser": 20 },
