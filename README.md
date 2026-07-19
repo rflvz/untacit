@@ -56,10 +56,10 @@ live in [`docs/`](docs/).
 |---|---|
 | [`packages/core`](packages/core) | Types & ontology constants, canonical serializer, batch validator, graph store, entity resolver with reversible merges, conflict resolution, derived SQLite index (FTS5 + incremental node embeddings, semantic & hybrid RRF search), ontology diff over git, import pipeline |
 | [`packages/cli`](packages/cli) | `untacit init \| import \| index \| embed \| stats \| search \| conflicts \| diff \| extract \| interview \| serve-mcp` |
-| [`packages/mcp`](packages/mcp) | MCP server (stdio + streamable HTTP): `untacit_context` (hybrid retrieval), `untacit_explore`, `untacit_impact`, `untacit_evidence`, `untacit_diff`, `untacit_conflicts`; agent surface for host models — `untacit_interview_gaps`, `untacit_code_candidates`, `untacit_doc_sections`, versioned prompts, and the `untacit_import_batch` write gate (`--write`) |
+| [`packages/mcp`](packages/mcp) | MCP server (stdio + streamable HTTP): `untacit_context` (hybrid retrieval), `untacit_explore`, `untacit_impact`, `untacit_evidence`, `untacit_diff`, `untacit_conflicts`; agent surface for host models — `untacit_interview_gaps`, `untacit_code_candidates`, `untacit_doc_sections`, versioned prompts; full write surface behind `--write` — `untacit_import_batch`, `untacit_review_queue`, `untacit_merge_accept/reject/revert`, `untacit_conflict_resolve` (every graph write, each landing as a git commit) |
 | [`packages/extractors`](packages/extractors) | Code / docs (PDF, Markdown, docx with section/page locators) / interview extraction agents. Engine = Claude Code (local CLI, no API key); pluggable LLM client, strict schema emission |
 | [`packages/app`](packages/app) | Desktop app: Tauri 2 shell + React + Sigma.js + Node sidecar |
-| [`packages/server`](packages/server) | Self-hosted MCP server over Streamable HTTP: one instance per company, multi-graph (`/graphs/<id>/mcp`), local users + OAuth 2.1 (PKCE, opaque rotating tokens), per-graph grants, background embedding refresh; Docker artifacts in [`deploy/`](deploy) |
+| [`packages/server`](packages/server) | Self-hosted MCP server over Streamable HTTP: one instance per company, multi-graph (`/graphs/<id>/mcp`), local users + OAuth 2.1 (PKCE, opaque rotating tokens), per-graph grants with an optional write level (`grant <user> <graph> --write` + `"write": true` per graph serves the full write surface), background embedding refresh; Docker artifacts in [`deploy/`](deploy) |
 | [`examples/acme-manufactura`](examples/acme-manufactura) | Synthetic dataset (fictitious manufacturer): 6 batches, **150 nodes, 233 edges**, 4 designed conflicts, review queue populated, 10 eval questions, [demo script](examples/acme-manufactura/DEMO.md) |
 | [`docs/`](docs) | Vision/PRD, ontology spec, architecture, phase plan, drift & extraction-as-PR guide, privacy audit, self-hosted server design + deployment guide |
 
@@ -100,8 +100,8 @@ node packages/cli/dist/bin.js interview --graph /tmp/acme-graph --gaps-only
 node packages/cli/dist/bin.js interview --graph /tmp/acme-graph --role administracion
 
 # Or drive extraction/interviews from Claude Code / Claude Desktop over MCP
-# (agent tools + versioned prompts; --write enables the single import gate,
-#  --http serves streamable HTTP instead of stdio)
+# (agent tools + versioned prompts; --write enables the full write surface —
+#  import gate + review actions — and --http serves streamable HTTP instead of stdio)
 node packages/mcp/dist/bin.js --graph /tmp/acme-graph --write
 node packages/mcp/dist/bin.js --graph /tmp/acme-graph --write --http --port 8765
 
@@ -127,7 +127,8 @@ docker build -f deploy/Dockerfile -t untacit-server .
 cd deploy && mkdir -p data graphs && cp config.example.json data/untacit-server.config.json
 docker compose up -d
 docker compose exec untacit untacit-server user add ana
-docker compose exec untacit untacit-server grant ana acme
+docker compose exec untacit untacit-server grant ana acme          # read-only
+docker compose exec untacit untacit-server grant ana acme --write  # + write surface (graphs with "write": true)
 claude mcp add --transport http acme https://untacit.example.com/graphs/acme/mcp
 ```
 
@@ -240,7 +241,12 @@ Built against the phase plan in [`docs/04-plan-de-fases.md`](docs/04-plan-de-fas
   (`user add | grant | revoke | status`), Docker image with the local
   embedding model pre-seeded (air-gapped hybrid retrieval; SLIM variant
   opt-out) + compose with optional Caddy TLS, smoked in CI. Deployment
-  guide: [`docs/07`](docs/07-guia-despliegue-autoalojado.md). The stateless
+  guide: [`docs/07`](docs/07-guia-despliegue-autoalojado.md). **Write mode**:
+  the MCP write surface (import gate + review-queue actions: accept/reject/
+  revert merges, resolve conflicts) is deployable per graph (`"write": true`)
+  and per user (`grant <user> <graph> --write`, checked on every request;
+  downgrading kills live write sessions), so any streamable-HTTP MCP host can
+  run the full write workflow remotely. The stateless
   Vercel mode remains a designed v1.1 option (docs/06 §4.6).
 - **App** — graph, detail, review (merges + low confidence + conflict
   resolution), drift and interview (chat + live triple validation) views

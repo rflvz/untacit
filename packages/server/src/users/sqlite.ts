@@ -109,13 +109,15 @@ export class SqliteUserStore implements UserStore {
     return toRecord(row);
   }
 
-  grant(userId: string, graphId: string): void {
+  grant(userId: string, graphId: string, opts: { write?: boolean } = {}): void {
+    // Always set the level: re-granting is how an admin upgrades OR downgrades
+    // (grant --write ⇄ plain grant) without touching granted_at.
     this.db
       .prepare(
-        'INSERT INTO user_graphs (user_id, graph_id, granted_at) VALUES (?, ?, ?) ' +
-          'ON CONFLICT (user_id, graph_id) DO NOTHING',
+        'INSERT INTO user_graphs (user_id, graph_id, granted_at, can_write) VALUES (?, ?, ?, ?) ' +
+          'ON CONFLICT (user_id, graph_id) DO UPDATE SET can_write = excluded.can_write',
       )
-      .run(userId, graphId, new Date().toISOString());
+      .run(userId, graphId, new Date().toISOString(), opts.write === true ? 1 : 0);
   }
 
   revoke(userId: string, graphId: string): void {
@@ -133,6 +135,21 @@ export class SqliteUserStore implements UserStore {
     return (
       this.db
         .prepare('SELECT 1 FROM user_graphs WHERE user_id = ? AND graph_id = ?')
+        .get(userId, graphId) !== undefined
+    );
+  }
+
+  writeGrants(userId: string): string[] {
+    const rows = this.db
+      .prepare('SELECT graph_id FROM user_graphs WHERE user_id = ? AND can_write = 1 ORDER BY graph_id')
+      .all(userId) as { graph_id: string }[];
+    return rows.map((r) => r.graph_id);
+  }
+
+  hasWriteGrant(userId: string, graphId: string): boolean {
+    return (
+      this.db
+        .prepare('SELECT 1 FROM user_graphs WHERE user_id = ? AND graph_id = ? AND can_write = 1')
         .get(userId, graphId) !== undefined
     );
   }

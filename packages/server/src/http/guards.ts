@@ -74,6 +74,8 @@ export function resolveGraph(config: ServerConfig, req: Request): GraphEntry | u
  * Post-bearer checks (docs/06 §5): the grant is evaluated on every request —
  * revoking cuts access immediately even while tokens are live — and a token
  * bound to a resource (RFC 8707) only works against that exact graph URL.
+ * `canWrite` is the effective write capability of THIS request: the graph
+ * must be write-enabled in the config AND the user must hold a write grant.
  */
 export function checkGraphAccess(
   config: ServerConfig,
@@ -81,7 +83,7 @@ export function checkGraphAccess(
   req: Request,
   res: Response,
   graph: GraphEntry,
-): { userId: string } | undefined {
+): { userId: string; canWrite: boolean } | undefined {
   const auth = req.auth;
   const userId = typeof auth?.extra?.userId === 'string' ? auth.extra.userId : undefined;
   if (auth === undefined || userId === undefined) {
@@ -102,7 +104,7 @@ export function checkGraphAccess(
     });
     return undefined;
   }
-  return { userId };
+  return { userId, canWrite: graph.write && users.hasWriteGrant(userId, graph.id) };
 }
 
 /** Strict parser for the RFC 8707 resources we issue: publicUrl + /graphs/<id>/mcp. */

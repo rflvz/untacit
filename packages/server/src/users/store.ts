@@ -72,8 +72,16 @@ export interface UserStore {
   /** Timing-safe credential check; null for unknown, disabled or wrong password. */
   verifyCredentials(username: string, password: string): UserRecord | null;
 
-  grant(userId: string, graphId: string): void;
+  /**
+   * Grant access to a graph. `write: true` also allows graph writes (the MCP
+   * write surface on write-enabled graphs); granting again always sets the
+   * level explicitly, so a plain re-grant downgrades a write grant to read.
+   */
+  grant(userId: string, graphId: string, opts?: { write?: boolean }): void;
   revoke(userId: string, graphId: string): void;
   grants(userId: string): string[];
   hasGrant(userId: string, graphId: string): boolean;
+  /** Graph ids where the user may write (subset of grants()). */
+  writeGrants(userId: string): string[];
+  hasWriteGrant(userId: string, graphId: string): boolean;
 }

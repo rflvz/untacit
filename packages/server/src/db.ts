@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 
 import Database from 'better-sqlite3';
 
-export const SERVER_DB_VERSION = 1;
+export const SERVER_DB_VERSION = 2;
 
 export function serverDbPath(dataDir: string): string {
   return join(dataDir, 'server.db');
@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS user_graphs (
   user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   graph_id   TEXT NOT NULL,
   granted_at TEXT NOT NULL,
+  can_write  INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (user_id, graph_id)
 );
 
@@ -101,8 +102,13 @@ function ensureSchema(db: Database.Database): void {
         'upgrade untacit-server',
     );
   }
-  // v0 → v1 is creation; future bumps may drop/recreate the auth tables
-  // (tokens/codes/requests are disposable) but must migrate users/grants.
+  // v0 → creation; v1 → v2 adds the write level to grants (migrated in
+  // place — users and grants are never disposable). The DDL is idempotent
+  // (IF NOT EXISTS), so running it after the ALTER also backfills any table
+  // a future bump may add.
+  if (version === 1) {
+    db.exec('ALTER TABLE user_graphs ADD COLUMN can_write INTEGER NOT NULL DEFAULT 0');
+  }
   db.exec(DDL);
   db.pragma(`user_version = ${SERVER_DB_VERSION}`);
 }

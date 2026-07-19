@@ -51,6 +51,7 @@ describe('loadServerConfig', () => {
     expect(config.graphs).toHaveLength(1);
     expect(config.graphs[0]!.name).toBe('acme');
     expect(config.graphs[0]!.tools).toBe('query');
+    expect(config.graphs[0]!.write).toBe(false); // write mode is opt-in per graph
     expect(config.graphs[0]!.path.endsWith('/acme')).toBe(true);
     expect(config.dataDir).toBe(join(configPath, '..'));
   });

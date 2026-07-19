@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import Database from 'better-sqlite3';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { openServerDb, pruneExpired, serverDbPath, SERVER_DB_VERSION } from '../db.js';
@@ -150,6 +151,68 @@ describe('SqliteUserStore', () => {
     store.revoke(ana.id, 'acme');
     expect(store.hasGrant(ana.id, 'acme')).toBe(false);
     expect(store.grants(ana.id)).toEqual(['logistica']);
+    db.close();
+  });
+
+  it('tracks the write level of grants; re-granting sets it explicitly', () => {
+    const db = openServerDb(makeDataDir());
+    const store = new SqliteUserStore(db);
+    const ana = store.add('ana', 'secret-password');
+
+    store.grant(ana.id, 'acme');
+    expect(store.hasWriteGrant(ana.id, 'acme')).toBe(false);
+    expect(store.writeGrants(ana.id)).toEqual([]);
+
+    // Upgrade: same grant, write level on.
+    store.grant(ana.id, 'acme', { write: true });
+    expect(store.hasGrant(ana.id, 'acme')).toBe(true);
+    expect(store.hasWriteGrant(ana.id, 'acme')).toBe(true);
+    expect(store.writeGrants(ana.id)).toEqual(['acme']);
+
+    // Downgrade: a plain re-grant strips write without touching read access.
+    store.grant(ana.id, 'acme');
+    expect(store.hasGrant(ana.id, 'acme')).toBe(true);
+    expect(store.hasWriteGrant(ana.id, 'acme')).toBe(false);
+
+    // Revoke removes everything; a write grant on one graph is not another's.
+    store.grant(ana.id, 'logistica', { write: true });
+    expect(store.hasWriteGrant(ana.id, 'acme')).toBe(false);
+    store.revoke(ana.id, 'logistica');
+    expect(store.hasWriteGrant(ana.id, 'logistica')).toBe(false);
+    db.close();
+  });
+});
+
+describe('schema migration v1 → v2', () => {
+  it('adds can_write to existing grants without losing them', () => {
+    const dataDir = makeDataDir();
+    // Hand-build a v1 database: no can_write column, user_version = 1.
+    const v1 = new Database(serverDbPath(dataDir));
+    v1.exec(`
+      CREATE TABLE users (
+        id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        password_hash TEXT NOT NULL, display_name TEXT,
+        disabled INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE user_graphs (
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        graph_id TEXT NOT NULL, granted_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, graph_id)
+      );
+      INSERT INTO users VALUES ('u1', 'ana', 'hash', NULL, 0, 'now', 'now');
+      INSERT INTO user_graphs VALUES ('u1', 'acme', 'now');
+    `);
+    v1.pragma('user_version = 1');
+    v1.close();
+
+    const db = openServerDb(dataDir);
+    expect(db.pragma('user_version', { simple: true })).toBe(SERVER_DB_VERSION);
+    const store = new SqliteUserStore(db);
+    // Pre-migration grants survive as read-only and can be upgraded in place.
+    expect(store.grants('u1')).toEqual(['acme']);
+    expect(store.hasWriteGrant('u1', 'acme')).toBe(false);
+    store.grant('u1', 'acme', { write: true });
+    expect(store.hasWriteGrant('u1', 'acme')).toBe(true);
     db.close();
   });
 });

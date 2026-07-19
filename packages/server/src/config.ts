@@ -19,6 +19,12 @@ const graphSchema = z.object({
   name: z.string().min(1).optional(),
   path: z.string().min(1),
   tools: z.enum(['query', 'agent']).default('query'),
+  /**
+   * Serve the MCP write surface (import batches + review actions) on this
+   * graph — only to users holding a write grant (docs/06 §5). The graph
+   * clone must then be pushable: writes land as commits.
+   */
+  write: z.boolean().default(false),
 });
 
 const configSchema = z
@@ -67,6 +73,8 @@ export interface GraphEntry {
   /** Absolute path of the graph repo on disk. */
   path: string;
   tools: 'query' | 'agent';
+  /** Whether write-granted users get the MCP write surface on this graph. */
+  write: boolean;
 }
 
 export interface ServerConfig {
@@ -199,7 +207,7 @@ export function loadServerConfig(opts: LoadConfigOptions = {}): ServerConfig {
     if (!existsSync(join(path, '.untacit', 'index.db'))) {
       warn(`graph "${g.id}": no derived index yet at ${path}/.untacit — it will be built on first use`);
     }
-    return { id: g.id, name: g.name ?? g.id, path, tools: g.tools };
+    return { id: g.id, name: g.name ?? g.id, path, tools: g.tools, write: g.write };
   });
 
   return {

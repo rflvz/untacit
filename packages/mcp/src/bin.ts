@@ -3,9 +3,10 @@
  * Entry point:
  *   untacit-mcp --graph <graph-repo-dir> [--write] [--http [--port N] [--host H]]
  * (or UNTACIT_REPO env var). Default transport is stdio; --http serves
- * streamable HTTP on /mcp. --write enables the untacit_import_batch gate so
- * a host model (Claude Code / Claude Desktop) can run extraction and
- * interviews over MCP.
+ * streamable HTTP on /mcp. --write enables the write surface (the
+ * untacit_import_batch gate plus the review-queue actions) so a host model
+ * (Claude Code / Claude Desktop) can run extraction, interviews and graph
+ * review entirely over MCP.
  */
 import { resolve } from 'node:path';
 

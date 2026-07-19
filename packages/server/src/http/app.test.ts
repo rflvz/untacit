@@ -98,6 +98,7 @@ let h: Harness;
 beforeAll(async () => {
   const acme = makeGraphRepo('acme');
   const logistica = makeGraphRepo('logistica');
+  const escritura = makeGraphRepo('escritura');
 
   // Bind first so the ephemeral port can be baked into publicUrl (issuer,
   // host guard and resource URLs all derive from it).
@@ -120,6 +121,7 @@ beforeAll(async () => {
       graphs: [
         { id: 'acme', name: 'ACME Manufactura', path: acme },
         { id: 'logistica', name: 'Logística', path: logistica, tools: 'agent' },
+        { id: 'escritura', name: 'Escritura', path: escritura, write: true },
       ],
       session: { idleTimeoutMinutes: 30, maxSessionsPerUser: 2 },
       security: { allowedOrigins: ['https://inspector.example.com'] },
@@ -134,10 +136,12 @@ beforeAll(async () => {
   const ana = deps.users.add('ana', 'ana-password-123');
   deps.users.grant(ana.id, 'acme');
   deps.users.grant(ana.id, 'logistica');
+  deps.users.grant(ana.id, 'escritura', { write: true });
   const eva = deps.users.add('eva', 'eva-password-123');
   deps.users.grant(eva.id, 'logistica');
   const carlos = deps.users.add('carlos', 'carlos-password-123');
   deps.users.grant(carlos.id, 'acme');
+  deps.users.grant(carlos.id, 'escritura'); // read-only on the writable graph
 
   h = {
     baseUrl,
@@ -219,12 +223,94 @@ describe('MCP endpoint over Streamable HTTP', () => {
     await client.close();
   });
 
-  it('keeps the write gate closed: no untacit_import_batch anywhere', async () => {
+  it('keeps the write gate closed on graphs not configured for writes', async () => {
     for (const graphId of ['acme', 'logistica']) {
       const client = await connectClient(graphId, h.tokenFor('ana'));
       const { tools } = await client.listTools();
       expect(tools.map((t) => t.name)).not.toContain('untacit_import_batch');
       await client.close();
+    }
+  });
+});
+
+describe('write mode: per-graph flag + per-user write grants', () => {
+  const WRITE_TOOLS = [
+    'untacit_import_batch',
+    'untacit_review_queue',
+    'untacit_merge_accept',
+    'untacit_merge_reject',
+    'untacit_merge_revert',
+    'untacit_conflict_resolve',
+  ];
+
+  it('serves the write surface only to write-granted users of a write-enabled graph', async () => {
+    const writer = await connectClient('escritura', h.tokenFor('ana'));
+    const writerTools = (await writer.listTools()).tools.map((t) => t.name);
+    expect(writerTools).toEqual(expect.arrayContaining(WRITE_TOOLS));
+    await writer.close();
+
+    // carlos holds a read grant on the same graph: query tools only.
+    const reader = await connectClient('escritura', h.tokenFor('carlos'));
+    const readerTools = (await reader.listTools()).tools.map((t) => t.name);
+    for (const tool of WRITE_TOOLS) expect(readerTools).not.toContain(tool);
+    await reader.close();
+  });
+
+  it('a write over Streamable HTTP lands as a commit in the graph repo', async () => {
+    const graphPath = h.config.graphs.find((g) => g.id === 'escritura')!.path;
+    const client = await connectClient('escritura', h.tokenFor('ana'));
+    const result = await client.callTool({
+      name: 'untacit_import_batch',
+      arguments: {
+        batch: {
+          run_id: '2026-07-19T10-00-00-document',
+          source_type: 'document',
+          nodes: [
+            {
+              mention: 'Nave central',
+              type: 'entity',
+              name: 'Nave central',
+              description: 'Almacén central de producto terminado.',
+              evidence: {
+                locator: { doc_id: 'manual', section: '3' },
+                excerpt: 'El producto terminado se deposita en la nave central.',
+              },
+            },
+          ],
+          edges: [],
+        },
+      },
+    });
+    await client.close();
+    const structured = result.structuredContent as { noop: boolean; commit: string | null };
+    expect(structured.noop).toBe(false);
+    expect(structured.commit).toBeTruthy();
+
+    const store = core.GraphStore.load(graphPath);
+    expect(store.getNode('entity-nave-central')).toBeDefined();
+    expect(core.gitStatusClean(graphPath)).toBe(true);
+  });
+
+  it('downgrading the write grant kills the write session; re-initialize is read-only', async () => {
+    const token = h.tokenFor('ana');
+    const init = await rawPost('escritura', token, initializeBody());
+    expect(init.status).toBe(200);
+    const sessionId = init.headers.get('mcp-session-id')!;
+
+    // Plain re-grant strips the write level (docs/06 §5) — the live write
+    // session must die on its next request, like a revoked read grant does.
+    h.deps.users.grant(h.users.ana, 'escritura');
+    try {
+      const after = await rawPost('escritura', token, { jsonrpc: '2.0', id: 2, method: 'tools/list' }, sessionId);
+      expect(after.status).toBe(404);
+
+      // Re-initializing works, but lands on the read-only surface.
+      const client = await connectClient('escritura', token);
+      const tools = (await client.listTools()).tools.map((t) => t.name);
+      for (const tool of WRITE_TOOLS) expect(tools).not.toContain(tool);
+      await client.close();
+    } finally {
+      h.deps.users.grant(h.users.ana, 'escritura', { write: true });
     }
   });
 });
@@ -480,7 +566,7 @@ describe('healthz and embeddings freshness', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { status: string; graphs: { id: string; ok: boolean }[] };
     expect(body.status).toBe('ok');
-    expect(body.graphs.map((g) => g.id).sort()).toEqual(['acme', 'logistica']);
+    expect(body.graphs.map((g) => g.id).sort()).toEqual(['acme', 'escritura', 'logistica']);
   });
 
   it('returns 503 degraded when a graph path becomes unreadable at runtime', async () => {

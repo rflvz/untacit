@@ -101,6 +101,7 @@ rápido con el motivo exacto):
 | `graphs[].name` | = id | nombre humano (aparece en la metadata y el login) |
 | `graphs[].path` | — | ruta del clon (absoluta o relativa a la config); debe ser repo git |
 | `graphs[].tools` | `"query"` | `"agent"` añade las tools de extracción/entrevista — solo si montaste sus fuentes |
+| `graphs[].write` | `false` | `true` sirve la superficie de escritura (import + acciones de revisión) a los usuarios con grant de escritura (§5); las escrituras aterrizan como commits en el clon |
 | `auth.accessTokenTtlSeconds` | `3600` | access tokens opacos, revocables al instante |
 | `auth.refreshTokenTtlSeconds` | `2592000` | refresh con rotación y detección de reuso |
 | `session.idleTimeoutMinutes` | `30` | eviction de sesiones MCP inactivas |
@@ -125,12 +126,23 @@ untacit-server user set-password ana
 untacit-server user disable ana                 # además revoca sus tokens vivos
 untacit-server user enable ana
 untacit-server grant ana acme
+untacit-server grant ana acme --write           # además permite escribir (si el grafo tiene "write": true)
 untacit-server revoke ana acme                  # corta el acceso al instante
 untacit-server status                           # grafos, usuarios, tokens vivos
 ```
 
 En Docker, antepón `docker compose exec untacit`. El grant se comprueba en
 **cada petición**: revocar no espera a que caduque ningún token.
+
+**Grants de escritura**: `grant --write` da al usuario la superficie de
+escritura MCP (`untacit_import_batch` + cola de revisión: aceptar/rechazar/
+revertir merges y resolver conflictos) en los grafos configurados con
+`"write": true`. Re-otorgar fija el nivel explícitamente: `grant ana acme`
+sin `--write` degrada un grant de escritura a solo lectura, y una sesión MCP
+abierta con escritura muere en su siguiente petición al degradarla (el
+cliente renegocia y aterriza en las tools de solo lectura). Cada escritura
+queda como commit en el clon del grafo: para compartirla, añade un
+`git push` al mismo cron del `git pull` (§8).
 
 ## 6. Conectar clientes
 
@@ -146,7 +158,10 @@ Qué verá el usuario: su cliente detecta que hace falta autorización (401 →
 discovery RFC 9728/8414 → registro dinámico RFC 7591), abre la página de
 login de la instancia en el navegador, y tras iniciar sesión vuelve al
 cliente ya conectado. Las seis tools de consulta (`untacit_context`,
-`explore`, `impact`, `evidence`, `diff`, `conflicts`) quedan disponibles.
+`explore`, `impact`, `evidence`, `diff`, `conflicts`) quedan disponibles;
+con grant de escritura sobre un grafo `"write": true` aparecen además las
+de escritura (`untacit_import_batch`, `untacit_review_queue`,
+`untacit_merge_accept/reject/revert`, `untacit_conflict_resolve`).
 
 ## 7. TLS y reverse proxy
 
@@ -240,6 +255,7 @@ de `server.db` más nueva que el binario se rechaza con mensaje claro.
 |---|---|---|
 | `401 invalid_token` constante | token caducado y el cliente no refresca | reconecta el servidor MCP en el cliente (re-login) |
 | `403 access_denied` | falta el grant | `untacit-server grant <user> <graphId>` |
+| no aparecen las tools de escritura | el grafo no tiene `"write": true` o el usuario no tiene grant `--write` | revisa `graphs[].write` y `untacit-server grant <user> <graphId> --write`; reconecta el cliente |
 | `403 invalid_resource` | token ligado a otro grafo (RFC 8707) | reconecta apuntando al grafo correcto |
 | `404` en `/graphs/x/mcp` | id no está en la config | revisa `graphs[].id` |
 | `421 misdirected_request` | Host ≠ `publicUrl` | accede por el dominio público o añade el host a `allowedHosts` |

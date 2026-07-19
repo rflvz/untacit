@@ -6,15 +6,13 @@
  * - Deterministic read tools: interview gap analysis + verification targets,
  *   code candidates (heuristic scan), document sections (segmentation with
  *   locators).
- * - One write gate: untacit_import_batch — the same validate → resolve →
- *   materialize → commit pipeline every extractor uses. Registered only when
- *   the server runs with writes enabled (`untacit serve-mcp --write`).
  * - MCP prompts serving the versioned extractor protocols (docs/03 §4), so
  *   the host model follows the exact same emission contract as the built-in
- *   engine.
+ *   engine. They emit through untacit_import_batch, which lives in the write
+ *   surface (src/review.ts) and needs the server running with writes enabled.
  */
 
-import { BATCH_JSON_SCHEMA, GraphIndex, importBatch } from '@untacit/core';
+import { BATCH_JSON_SCHEMA, GraphIndex } from '@untacit/core';
 import {
   PROMPT_VERSIONS,
   codeSystemPrompt,
@@ -31,16 +29,7 @@ import { z } from 'zod';
 
 const READ_ONLY = { readOnlyHint: true, openWorldHint: false } as const;
 
-export interface AgentSurfaceOptions {
-  /** Register the untacit_import_batch write tool. */
-  write?: boolean;
-}
-
-export function registerAgentSurface(
-  server: McpServer,
-  repoRoot: string,
-  opts: AgentSurfaceOptions = {},
-): void {
+export function registerAgentSurface(server: McpServer, repoRoot: string): void {
   // ---------------------------------------------------------------------------
   // untacit_interview_gaps — where the graph is weakest (docs/03 §4.3.1 + .5)
   // ---------------------------------------------------------------------------
@@ -185,63 +174,6 @@ export function registerAgentSurface(
       };
     },
   );
-
-  // ---------------------------------------------------------------------------
-  // untacit_import_batch — THE write gate (only with --write)
-  // ---------------------------------------------------------------------------
-  if (opts.write === true) {
-    server.registerTool(
-      'untacit_import_batch',
-      {
-        title: 'Import an extraction batch into the graph repo',
-        description:
-          'Validate → resolve entities → materialize canonical files → commit (one run = one ' +
-          'commit). This is the ONLY write path into the graph: emit nodes/edges as an extraction ' +
-          'batch (contract untacit/extraction-batch.v1 — get it via the untacit-extract-* or ' +
-          'untacit-interview prompts). Invalid items are rejected with reasons, valid ones are ' +
-          'salvaged. Re-importing an identical batch is a no-op (idempotent). ' +
-          'Interview batches: evidence validated live must carry "validated_by": "<rol>".',
-        inputSchema: {
-          batch: z
-            .record(z.unknown())
-            .describe(
-              'Extraction batch JSON: { run_id, source_type: "code"|"document"|"interview", nodes: [...], edges: [...] } per untacit/extraction-batch.v1',
-            ),
-        },
-        annotations: {
-          readOnlyHint: false,
-          destructiveHint: false,
-          idempotentHint: true,
-          openWorldHint: false,
-        },
-      },
-      async ({ batch }) => {
-        const result = await importBatch(repoRoot, batch);
-        const s = result.stats;
-        const lines = [
-          result.noop
-            ? `run ${result.runId}: sin cambios (re-import idéntico)`
-            : `run ${result.runId}: +${s.nodes_created}/~${s.nodes_updated} nodos, +${s.edges_created}/~${s.edges_updated} aristas, +${s.evidence_added} evidencias`,
-          ...(result.commit !== null ? [`commit ${result.commit.slice(0, 10)}`] : []),
-          ...result.rejections.map((r) => `rechazado ${r.path}: ${r.message}`),
-          ...result.proposals.map(
-            (p) => `¿merge? ${p.sourceNodeId} -> ${p.targetNodeId} (score ${p.score}) — pendiente en la cola de revisión`,
-          ),
-        ];
-        return {
-          content: [{ type: 'text', text: lines.join('\n') }],
-          structuredContent: {
-            runId: result.runId,
-            noop: result.noop,
-            commit: result.commit,
-            stats: result.stats,
-            rejections: result.rejections,
-            proposals: result.proposals,
-          } as unknown as Record<string, unknown>,
-        };
-      },
-    );
-  }
 
   // ---------------------------------------------------------------------------
   // Prompts: the versioned extractor protocols (docs/03 §4) served over MCP

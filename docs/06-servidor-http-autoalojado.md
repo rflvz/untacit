@@ -27,9 +27,13 @@ Objetivo: que cada empresa pueda **autoalojar una única instancia HTTP**
   administrador crea usuarios locales; cuando un usuario conecta su cliente
   (Claude, Claude Code, Cursor…) a su URL, el navegador abre la página de
   login de la instancia e inicia sesión — sin IdP externo en v1;
-- trata los grafos como **solo lectura**: sirve lo que hay en disco; la
-  actualización (git pull / import / index) ocurre fuera del servidor. Las 6
-  tools MCP existentes ya son read-only.
+- trata los grafos como **solo lectura por defecto**: sirve lo que hay en
+  disco; la actualización (git pull / import / index) ocurre fuera del
+  servidor. Las 6 tools MCP existentes ya son read-only. *(Implementado
+  después de v1: un grafo puede optar a escritura con `"write": true` en la
+  config + grants de escritura por usuario — `grant <user> <graph> --write` —
+  que sirven la superficie de escritura completa del MCP: import de batches
+  y acciones de la cola de revisión, cada una como commit en el clon.)*
 
 Decisiones de producto ya tomadas (propietario del producto):
 multi-graph en una instancia; usuarios locales con login por URL; artefactos
@@ -59,10 +63,13 @@ OAuth; difieren en cómo persisten estado y en el modo de sesión (§4.6):
 - **Seam limpio**: `createServer(repoRoot, opts?): McpServer`
   (`packages/mcp/src/index.ts:49`) registra las tools y es agnóstico al
   transporte; `serveMcp()` lo ata a stdio. El camino stdio queda **intacto**
-  (lo usa el escritorio). `ServeOptions.write` (`index.ts:44-47`) activa el
-  write-gate `untacit_import_batch` — **el servidor de empresa lo deja
-  desactivado en v1** (requisito de solo lectura); exponer extracción remota
-  por grafo sería una decisión futura explícita.
+  (lo usa el escritorio). `ServeOptions.write` activa la superficie de
+  escritura (`packages/mcp/src/review.ts`: `untacit_import_batch` + cola de
+  revisión) — el servidor de empresa la dejó desactivada en v1 y hoy la
+  expone **por grafo y por usuario**: `graphs[].write: true` en la config y
+  grant de escritura (`hasWriteGrant`) evaluado en cada petición; la sesión
+  MCP registra las tools de escritura solo si ambos se cumplen al
+  inicializar, y muere al degradar el grant.
 - **Modo HTTP local ya mergeado**: `serveMcpHttp(repoRoot, opts)` en
   `packages/mcp/src/http.ts` — stateless (un server+transporte por POST,
   `enableJsonResponse: true`), un solo grafo, **sin autenticación**, bind por

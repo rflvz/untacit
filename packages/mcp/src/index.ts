@@ -32,9 +32,11 @@ import {
   evidenceQuery,
   exploreQuery,
 } from './queries.js';
+import { registerWriteSurface } from './review.js';
 
 export * from './queries.js';
 export { registerAgentSurface } from './agent.js';
+export { registerWriteSurface } from './review.js';
 
 const nodeTypeEnum = z.enum(NODE_TYPES as [NodeType, ...NodeType[]]);
 const edgeTypeEnum = z.enum(EDGE_TYPES as [EdgeType, ...EdgeType[]]);
@@ -42,7 +44,11 @@ const edgeTypeEnum = z.enum(EDGE_TYPES as [EdgeType, ...EdgeType[]]);
 const READ_ONLY = { readOnlyHint: true, openWorldHint: false } as const;
 
 export interface ServeOptions {
-  /** Enable the untacit_import_batch write gate (extraction/interviews over MCP). */
+  /**
+   * Enable the write surface (src/review.ts): the untacit_import_batch gate
+   * plus the review-queue actions (accept/reject/revert merges, resolve
+   * conflicts) — everything that mutates the graph repo.
+   */
   write?: boolean;
   /**
    * Register the agent surface (interview gaps, code candidates, doc
@@ -327,10 +333,17 @@ export function createServer(repoRoot: string, opts: ServeOptions = {}): McpServ
     },
   );
 
-  // Agent surface: interview gaps, code candidates, doc sections, prompts and
-  // (with opts.write) the untacit_import_batch write gate.
+  // Agent surface: interview gaps, code candidates, doc sections and the
+  // versioned extractor prompts (all read-only).
   if (opts.agentSurface !== false) {
-    registerAgentSurface(server, repoRoot, { write: opts.write });
+    registerAgentSurface(server, repoRoot);
+  }
+
+  // Write surface: import gate + review-queue actions. Independent of the
+  // agent surface so the self-hosted server can serve "query + write"
+  // graphs whose extraction sources are not mounted (docs/06 §5).
+  if (opts.write === true) {
+    registerWriteSurface(server, repoRoot);
   }
 
   return server;
