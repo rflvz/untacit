@@ -11,7 +11,9 @@ import { hashPassword, verifyPassword } from './store.js';
 
 const tmpDirs: string[] = [];
 afterAll(() => {
-  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+  // maxRetries/retryDelay: on Windows the SQLite -wal/-shm mmap lingers a few
+  // ms after close(), so a recursive rm can hit a transient EPERM/EBUSY.
+  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 function makeDataDir(): string {

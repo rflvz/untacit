@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
+import type Database from 'better-sqlite3';
 import express from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -22,10 +23,15 @@ import { UntacitOAuthProvider, MCP_SCOPE } from './provider.js';
 import { OpaqueTokenStore } from './tokens-opaque.js';
 
 const tmpDirs: string[] = [];
+const dbs: Database.Database[] = [];
 const servers: Server[] = [];
 afterAll(async () => {
   for (const server of servers) await new Promise((r) => server.close(r));
-  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+  // Close every db before removing its dir: an open better-sqlite3 handle
+  // holds a WAL lock that blocks recursive removal on Windows (unlink of an
+  // open file only works on POSIX). maxRetries covers any residual AV lag.
+  for (const db of dbs) db.close();
+  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 interface Harness {
@@ -38,6 +44,7 @@ async function makeHarness(loginRateLimit: false | { limit: number } = false): P
   const dir = mkdtempSync(join(tmpdir(), 'untacit-server-login-'));
   tmpDirs.push(dir);
   const db = openServerDb(dir);
+  dbs.push(db);
   const users = new SqliteUserStore(db);
   const tokens = new OpaqueTokenStore(db, { accessTokenTtlSeconds: 3600, refreshTokenTtlSeconds: 86400 });
   const provider = new UntacitOAuthProvider({

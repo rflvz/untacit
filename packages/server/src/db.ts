@@ -87,9 +87,17 @@ export function openServerDb(dataDir: string): Database.Database {
   const path = serverDbPath(dataDir);
   mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  ensureSchema(db);
+  try {
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    ensureSchema(db);
+  } catch (err) {
+    // A failed open (e.g. a newer schema version) must not leak the handle:
+    // an open better-sqlite3 connection holds a WAL lock that, on Windows,
+    // blocks removal of the whole data dir.
+    db.close();
+    throw err;
+  }
   return db;
 }
 

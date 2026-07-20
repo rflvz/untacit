@@ -37,6 +37,30 @@ export function claudeCodeBin(bin?: string): string {
 }
 
 /**
+ * How to spawn `bin` with `args` portably. Two platform hazards:
+ *
+ *  - A JS entry (`.cjs`/`.mjs`/`.js`, e.g. the test stub) is not directly
+ *    executable on Windows (no shebang honored) → run it through Node.
+ *  - A bare command or a `.cmd`/`.ps1`/`.bat` shim (how npm-installed CLIs like
+ *    `claude` land on Windows) cannot be `execFile`d without a shell since the
+ *    CVE-2024-27980 fix → route it through the shell. A real `.exe` runs direct.
+ *
+ * The shell branch is Windows-only and never reached by a real `.exe` or a JS
+ * entry, so on POSIX behaviour is unchanged. Note: on that branch, argv values
+ * carrying cmd metacharacters (`"& | % < > ^`) are not shell-escaped — untacit's
+ * own system prompts are static developer text, so this is not an injection path.
+ */
+function spawnPlan(bin: string, args: string[]): { cmd: string; args: string[]; shell: boolean } {
+  if (/\.[cm]?js$/i.test(bin)) {
+    return { cmd: process.execPath, args: [bin, ...args], shell: false };
+  }
+  if (process.platform === 'win32' && !/\.exe$/i.test(bin)) {
+    return { cmd: bin, args, shell: true };
+  }
+  return { cmd: bin, args, shell: false };
+}
+
+/**
  * Is the Claude Code CLI reachable? Cheap probe (`claude --version`), used by
  * the sidecar and the CLI to fail fast with an actionable message instead of
  * erroring mid-conversation.
@@ -44,10 +68,12 @@ export function claudeCodeBin(bin?: string): string {
 export function claudeCodeAvailable(bin?: string): { ok: boolean; detail: string } {
   const resolved = claudeCodeBin(bin);
   try {
-    const version = execFileSync(resolved, ['--version'], {
+    const plan = spawnPlan(resolved, ['--version']);
+    const version = execFileSync(plan.cmd, plan.args, {
       encoding: 'utf8',
       timeout: 15_000,
       stdio: ['ignore', 'pipe', 'pipe'],
+      shell: plan.shell,
     }).trim();
     return { ok: true, detail: version };
   } catch (err) {
@@ -115,11 +141,13 @@ export class ClaudeCodeLlmClient implements LlmClient {
         JSON.stringify(req.schema);
     }
 
-    const child = execFileAsync(this.bin, args, {
+    const plan = spawnPlan(this.bin, args);
+    const child = execFileAsync(plan.cmd, plan.args, {
       encoding: 'utf8',
       timeout: this.timeoutMs,
       maxBuffer: 32 * 1024 * 1024,
       env: process.env,
+      shell: plan.shell,
     });
     child.child.stdin?.write(prompt);
     child.child.stdin?.end();
