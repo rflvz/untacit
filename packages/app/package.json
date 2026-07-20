@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "concurrently -k -n sidecar,vite -c blue,green \"tsx watch --tsconfig tsconfig.sidecar.json sidecar/server.ts\" \"vite\"",
     "sidecar": "tsx --tsconfig tsconfig.sidecar.json sidecar/server.ts",
-    "bundle:sidecar": "esbuild sidecar/server.ts --bundle --platform=node --format=esm --external:@untacit/core --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\" --outfile=sidecar/dist/server.mjs",
+    "bundle:sidecar": "node scripts/stage-sidecar.mjs",
+    "tauri": "tauri",
     "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.sidecar.json --noEmit && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.sidecar.json --noEmit",
     "test": "vitest run"
@@ -17,6 +18,7 @@
     "@untacit/core": "workspace:*",
     "@untacit/extractors": "workspace:*",
     "@hono/node-server": "^1.13.7",
+    "@tauri-apps/api": "^2.9.0",
     "graphology": "^0.25.4",
     "graphology-layout-forceatlas2": "^0.10.1",
     "hono": "^4.6.14",
@@ -25,6 +27,7 @@
     "sigma": "^3.0.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.9.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",

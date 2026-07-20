@@ -18,27 +18,29 @@ export type CoreModule = typeof CoreNS;
 let cached: CoreModule | undefined;
 let lastError: string | undefined;
 
-function candidates(): string[] {
-  return [
-    '@untacit/core',
-    // packages/app/sidecar/ -> packages/core/src/index.ts (tsx can load .ts)
-    new URL('../../core/src/index.ts', import.meta.url).href,
-  ];
-}
-
 export async function loadCore(): Promise<CoreModule | undefined> {
   if (cached !== undefined) return cached;
   const errors: string[] = [];
-  for (const specifier of candidates()) {
-    try {
-      // Non-literal specifier on purpose: tsc must not try to resolve the
-      // .ts fallback, and bundlers must not pre-bundle it.
-      cached = (await import(specifier)) as CoreModule;
-      lastError = undefined;
-      return cached;
-    } catch (err) {
-      errors.push(`${specifier}: ${err instanceof Error ? err.message : String(err)}`);
-    }
+  try {
+    // Literal specifier on purpose: the release bundle (scripts/
+    // stage-sidecar.mjs) statically inlines the workspace package here, so
+    // the installed app needs no node_modules besides the native module.
+    cached = await import('@untacit/core');
+    lastError = undefined;
+    return cached;
+  } catch (err) {
+    errors.push(`@untacit/core: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  // packages/app/sidecar/ -> packages/core/src/index.ts (tsx can load .ts).
+  // Non-literal on purpose: tsc must not try to resolve the .ts fallback,
+  // and bundlers must not pre-bundle it.
+  const fallback = new URL('../../core/src/index.ts', import.meta.url).href;
+  try {
+    cached = (await import(fallback)) as CoreModule;
+    lastError = undefined;
+    return cached;
+  } catch (err) {
+    errors.push(`${fallback}: ${err instanceof Error ? err.message : String(err)}`);
   }
   lastError = errors.join(' | ');
   return undefined;

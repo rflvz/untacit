@@ -26,13 +26,44 @@ jobs:
         run: pnpm build
 
       - name: Test
-        run: pnpm test
+        run: |
+          # git >= 2.51 can leave a DETACHED auto-maintenance repacking a test
+          # repo after a commit, racing the suites' temp-dir cleanup into
+          # ENOTEMPTY (same guard as the docker-image job below).
+          git config --global gc.auto 0
+          git config --global maintenance.auto false
+          pnpm test
 
       - name: Verify synthetic dataset end-to-end
         run: node examples/acme-manufactura/check.mjs
 
       - name: Verify the 10 Fase 5 evals against the MCP server
         run: node examples/acme-manufactura/evals/run.mjs
+
+  # The desktop shell (Tauri) only compiles against the platform webview
+  # toolchain, so PRs type-check it on windows-latest — the target platform,
+  # which also covers the #[cfg(windows)] code paths. Installer builds live
+  # in desktop.yml (tags / manual runs).
+  desktop-shell-check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: packages/app/src-tauri
+
+      # tauri-build validates at compile time that the frontend dist and the
+      # sidecar resource dir exist; empty dirs satisfy it for type-checking
+      # purposes.
+      - name: Stub the frontend dist and the sidecar resource dir
+        run: mkdir -p packages/app/dist packages/app/sidecar/dist
+        shell: bash
+
+      - name: cargo check
+        run: cargo check --locked --manifest-path packages/app/src-tauri/Cargo.toml
 
   # Fase 7 (docs/06 §8.1): the self-hosted image must keep building — native
   # deps (better-sqlite3, onnxruntime) plus the pre-seeded model layer are the

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Ventana principal: comandos propios del shell + eventos core (untacit://repo-changed). Los diálogos y el opener se usan solo desde Rust, así que no exponen permisos al webview.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
