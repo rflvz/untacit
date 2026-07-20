@@ -58,10 +58,10 @@ live in [`docs/`](docs/).
 | [`packages/cli`](packages/cli) | `untacit init \| import \| index \| embed \| stats \| search \| conflicts \| diff \| extract \| interview \| serve-mcp` |
 | [`packages/mcp`](packages/mcp) | MCP server (stdio + streamable HTTP): `untacit_context` (hybrid retrieval), `untacit_explore`, `untacit_impact`, `untacit_evidence`, `untacit_diff`, `untacit_conflicts`; agent surface for host models — `untacit_interview_gaps`, `untacit_code_candidates`, `untacit_doc_sections`, versioned prompts; full write surface behind `--write` — `untacit_import_batch`, `untacit_review_queue`, `untacit_merge_accept/reject/revert`, `untacit_conflict_resolve` (every graph write, each landing as a git commit) |
 | [`packages/extractors`](packages/extractors) | Code / docs (PDF, Markdown, docx with section/page locators) / interview extraction agents. Engine = Claude Code (local CLI, no API key); pluggable LLM client, strict schema emission |
-| [`packages/app`](packages/app) | Desktop app: Tauri 2 shell + React + Sigma.js + Node sidecar |
+| [`packages/app`](packages/app) | Desktop app: Tauri 2 shell (system tray, native folder picker, Windows NSIS installer) + React + Sigma.js + self-contained Node sidecar |
 | [`packages/server`](packages/server) | Self-hosted MCP server over Streamable HTTP: one instance per company, multi-graph (`/graphs/<id>/mcp`), local users + OAuth 2.1 (PKCE, opaque rotating tokens), per-graph grants with an optional write level (`grant <user> <graph> --write` + `"write": true` per graph serves the full write surface), background embedding refresh; Docker artifacts in [`deploy/`](deploy) |
 | [`examples/acme-manufactura`](examples/acme-manufactura) | Synthetic dataset (fictitious manufacturer): 6 batches, **150 nodes, 233 edges**, 4 designed conflicts, review queue populated, 10 eval questions, [demo script](examples/acme-manufactura/DEMO.md) |
-| [`docs/`](docs) | Vision/PRD, ontology spec, architecture, phase plan, drift & extraction-as-PR guide, privacy audit, self-hosted server design + deployment guide |
+| [`docs/`](docs) | Vision/PRD, ontology spec, architecture, phase plan, drift & extraction-as-PR guide, privacy audit, self-hosted server design + deployment guide, Windows desktop-app guide |
 
 ## Quickstart
 
@@ -111,6 +111,19 @@ node packages/mcp/dist/bin.js --graph /tmp/acme-graph
 # Desktop app (browser dev mode)
 UNTACIT_REPO=/tmp/acme-graph pnpm --filter @untacit/app dev
 ```
+
+### Desktop app on Windows
+
+Download `untacit_<version>_x64-setup.exe` from
+[Releases](https://github.com/rflvz/untacit/releases) (built by
+[`desktop.yml`](.github/workflows/desktop.yml) on every `v*` tag) — a
+per-user NSIS installer, no admin rights needed. Only requirement:
+[Node.js ≥ 20 LTS](https://nodejs.org) (the app tells you if it's missing).
+On first run you pick the graph-repo folder with the native dialog (no env
+vars, no terminal); the app then lives in the system tray, remembers recent
+graphs and lets you switch folders from the top bar or the tray menu.
+Install & usage guide, build-from-source and troubleshooting:
+[`docs/08-guia-app-escritorio-windows.md`](docs/08-guia-app-escritorio-windows.md).
 
 ### Self-hosted server (teams)
 

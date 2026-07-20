@@ -13,27 +13,29 @@ export type ExtractorsModule = typeof ExtractorsNS;
 let cached: ExtractorsModule | undefined;
 let lastError: string | undefined;
 
-function candidates(): string[] {
-  return [
-    '@untacit/extractors',
-    // packages/app/sidecar/ -> packages/extractors/src/index.ts (tsx loads .ts)
-    new URL('../../extractors/src/index.ts', import.meta.url).href,
-  ];
-}
-
 export async function loadExtractors(): Promise<ExtractorsModule | undefined> {
   if (cached !== undefined) return cached;
   const errors: string[] = [];
-  for (const specifier of candidates()) {
-    try {
-      // Non-literal specifier on purpose: tsc must not try to resolve the
-      // .ts fallback, and bundlers must not pre-bundle it.
-      cached = (await import(specifier)) as ExtractorsModule;
-      lastError = undefined;
-      return cached;
-    } catch (err) {
-      errors.push(`${specifier}: ${err instanceof Error ? err.message : String(err)}`);
-    }
+  try {
+    // Literal specifier on purpose: the release bundle (scripts/
+    // stage-sidecar.mjs) statically inlines the workspace package here, so
+    // the interview engine works in the installed app without node_modules.
+    cached = await import('@untacit/extractors');
+    lastError = undefined;
+    return cached;
+  } catch (err) {
+    errors.push(`@untacit/extractors: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  // packages/app/sidecar/ -> packages/extractors/src/index.ts (tsx loads
+  // .ts). Non-literal on purpose: tsc must not try to resolve the .ts
+  // fallback, and bundlers must not pre-bundle it.
+  const fallback = new URL('../../extractors/src/index.ts', import.meta.url).href;
+  try {
+    cached = (await import(fallback)) as ExtractorsModule;
+    lastError = undefined;
+    return cached;
+  } catch (err) {
+    errors.push(`${fallback}: ${err instanceof Error ? err.message : String(err)}`);
   }
   lastError = errors.join(' | ');
   return undefined;

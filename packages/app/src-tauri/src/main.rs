@@ -1,101 +1,92 @@
-// untacit desktop shell (docs/03 §7, docs/04 Fase 2).
+// untacit desktop shell (docs/03 §7, docs/08 guía de escritorio).
 //
-// The core runs as a Node sidecar (sidecar/server.ts) exposing the local HTTP
-// API on port 4823; the webview frontend talks to it directly (src/api.ts
-// switches to the absolute origin when it detects Tauri).
-//
-// Process lifecycle:
-//   - `tauri dev`: beforeDevCommand (`pnpm dev`) already runs sidecar + vite,
-//     so the shell spawns nothing (debug_assertions gate below).
-//   - release build: the shell spawns `node sidecar/dist/server.mjs` (the
-//     esbuild bundle produced by `pnpm bundle:sidecar`) and kills it on exit.
-//     The graph repo comes from UNTACIT_REPO, like the plain sidecar.
+// Wiring only — the behavior lives in the modules:
+//   config.rs   persisted repo choice + MRU list
+//   nodejs.rs   Node runtime discovery + missing-Node dialog
+//   shell.rs    managed state + sidecar lifecycle + window helpers
+//   tray.rs     system-tray icon and its menu
+//   commands.rs frontend-facing commands (shell_state / pick_repo / …)
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod commands;
+mod config;
+mod nodejs;
+mod shell;
+mod tray;
+
 use std::env;
 use std::path::PathBuf;
-use std::process::{Child, Command};
-use std::sync::Mutex;
 
 use tauri::{Manager, RunEvent};
 
-/// Handle of the spawned sidecar process, killed on RunEvent::Exit.
-struct Sidecar(Mutex<Option<Child>>);
-
-/// Locate the bundled sidecar entry point:
-/// UNTACIT_SIDECAR env override, then next to the executable (installed
-/// layout / cargo target dir), then the workspace layout as a last resort.
-fn sidecar_entry() -> Option<PathBuf> {
-    if let Ok(explicit) = env::var("UNTACIT_SIDECAR") {
-        return Some(PathBuf::from(explicit));
-    }
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(exe) = env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            candidates.push(dir.join("sidecar/server.mjs"));
-            // target/{debug,release} -> src-tauri -> packages/app
-            candidates.push(dir.join("../../../sidecar/dist/server.mjs"));
-        }
-    }
-    candidates.push(PathBuf::from(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../sidecar/dist/server.mjs"
-    )));
-    candidates.into_iter().find(|p| p.exists())
-}
-
-fn spawn_sidecar() -> Option<Child> {
-    let entry = match sidecar_entry() {
-        Some(entry) => entry,
-        None => {
-            eprintln!(
-                "[untacit] sidecar bundle not found; run `pnpm bundle:sidecar` \
-                 or set UNTACIT_SIDECAR to the server.mjs path"
-            );
-            return None;
-        }
-    };
-    // UNTACIT_REPO / UNTACIT_PORT / UNTACIT_OPEN_CMD pass through the
-    // inherited environment; the sidecar applies its own defaults.
-    match Command::new("node").arg(&entry).spawn() {
-        Ok(child) => {
-            eprintln!("[untacit] sidecar started: node {}", entry.display());
-            Some(child)
-        }
-        Err(err) => {
-            eprintln!("[untacit] failed to start sidecar (is node installed?): {err}");
-            None
-        }
-    }
-}
+use shell::Shell;
 
 fn main() {
     let app = tauri::Builder::default()
+        // A second launch (shortcut, taskbar pin) focuses the existing
+        // window instead of starting another shell + sidecar pair.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            shell::show_main_window(app);
+        }))
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .invoke_handler(tauri::generate_handler![
+            commands::shell_state,
+            commands::pick_repo,
+            commands::set_repo,
+            commands::open_repo_folder,
+        ])
         .setup(|app| {
-            let child = if cfg!(debug_assertions) {
-                None // `pnpm dev` (beforeDevCommand) already runs the sidecar.
-            } else {
-                spawn_sidecar()
+            let handle = app.handle().clone();
+            let persisted = config::load(&handle);
+            let node = nodejs::find_node();
+            let node_missing = node.is_none();
+            app.manage(Shell::new(persisted, node));
+
+            let tray_ok = match tray::setup(&handle) {
+                Ok(()) => true,
+                Err(err) => {
+                    eprintln!("[untacit] tray unavailable: {err}");
+                    false
+                }
             };
-            app.manage(Sidecar(Mutex::new(child)));
+            app.state::<Shell>().set_tray_active(tray_ok);
+
+            // Startup repo: the persisted choice wins; UNTACIT_REPO stays as
+            // an override for first runs / scripted launches. No repo → the
+            // frontend shows the welcome screen and no sidecar is spawned.
+            let repo = {
+                let state = app.state::<Shell>();
+                let config = state.config.lock().expect("config mutex poisoned");
+                config.repo.clone()
+            }
+            .or_else(|| env::var("UNTACIT_REPO").ok().map(PathBuf::from));
+            if let Some(repo) = repo {
+                shell::start_sidecar(&handle, &repo);
+                shell::apply_repo_to_window(&handle, Some(&repo));
+            }
+            if node_missing && !cfg!(debug_assertions) {
+                nodejs::warn_node_missing(&handle);
+            }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Close = hide to tray; "Salir" lives in the tray menu. If
+                // the tray failed to build, fall through to a normal close.
+                if window.app_handle().state::<Shell>().tray_active() {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .build(tauri::generate_context!())
         .expect("error while building untacit");
 
     app.run(|app_handle, event| {
         if let RunEvent::Exit = event {
-            let taken = app_handle
-                .state::<Sidecar>()
-                .0
-                .lock()
-                .expect("sidecar mutex poisoned")
-                .take();
-            if let Some(mut child) = taken {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
+            shell::stop_sidecar(app_handle);
         }
     });
 }

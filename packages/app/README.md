@@ -4,6 +4,12 @@ Desktop app (docs/03 §7): Tauri 2 shell + React frontend + Node sidecar. The
 core runs as a sidecar process exposing a local HTTP API; the UI consumes it,
 so the same frontend works in a plain browser during development.
 
+**Installing on Windows?** See the user guide:
+[`docs/08-guia-app-escritorio-windows.md`](../../docs/08-guia-app-escritorio-windows.md)
+(requirements, installer, first run, tray usage, troubleshooting). Installers
+are published by [`.github/workflows/desktop.yml`](../../.github/workflows/desktop.yml)
+on every `v*` tag.
+
 ## Run (dev)
 
 ```bash
@@ -78,16 +84,45 @@ graph repo's `untacit.config.json`:
 
 ## Tauri shell
 
-`src-tauri/` owns the window and the sidecar lifecycle:
+`src-tauri/` owns the window, the system tray and the sidecar lifecycle,
+split by concern: `config.rs` (persisted repo choice + MRU list under the OS
+config dir), `nodejs.rs` (Node runtime discovery + missing-Node dialog),
+`shell.rs` (managed state, sidecar spawn/restart/kill), `tray.rs` (tray icon
++ menu) and `commands.rs` (frontend commands: `shell_state`, `pick_repo`,
+`set_repo`, `open_repo_folder`, plus the `untacit://repo-changed` event).
 
-- `pnpm tauri dev` (with the Tauri CLI installed): `beforeDevCommand` runs
-  `pnpm dev`, so sidecar + vite come up as in the browser flow.
-- Release build: `beforeBuildCommand` bundles the sidecar with esbuild
-  (`pnpm bundle:sidecar` → `sidecar/dist/server.mjs`, `@untacit/core` stays
-  external so its native SQLite dep resolves from the workspace) and
-  `src-tauri/src/main.rs` spawns it with the system `node`, killing it on
-  exit. `UNTACIT_REPO`, `UNTACIT_PORT`, `UNTACIT_OPEN_CMD` and
+Desktop UX:
+
+- **Folder picking, no env vars**: on first run the frontend shows a welcome
+  screen (`src/views/WelcomeView.tsx`) and the user picks the graph repo with
+  the native folder dialog; the choice persists (`shell.json`) with a recents
+  list. Switching folders restarts the sidecar and retitles the window.
+- **System tray**: closing the window hides to the tray; the tray menu shows
+  the window, switches/reveals the graph folder and quits. Left click
+  restores the window. If the tray can't be created (some Linux setups),
+  closing the window quits normally.
+- **Single instance**: a second launch focuses the existing window.
+- **Node detection**: the shell looks for Node ≥ 20 in `UNTACIT_NODE`, PATH
+  and the standard Windows install locations, and shows a dialog linking to
+  nodejs.org when missing.
+
+Build/run:
+
+- `pnpm tauri dev`: `beforeDevCommand` runs `pnpm dev`, so sidecar + vite
+  come up as in the browser flow (the shell spawns nothing in debug).
+- `pnpm tauri build --bundles nsis`: `beforeBuildCommand` builds the
+  frontend and stages a **self-contained sidecar** via `pnpm bundle:sidecar`
+  (`scripts/stage-sidecar.mjs`): esbuild bundles the sidecar *with*
+  `@untacit/core` and `@untacit/extractors` compiled in from sources
+  (tsconfig.sidecar.json paths), leaving only `better-sqlite3` external and
+  copying it (prebuilt `.node` included) into `sidecar/dist/node_modules/`.
+  The whole `sidecar/dist/` ships as a Tauri resource, so the installed app
+  only needs a system Node ≥ 20 — staging must run on the target OS/arch.
+  `UNTACIT_REPO`, `UNTACIT_PORT`, `UNTACIT_OPEN_CMD`, `UNTACIT_NODE` and
   `UNTACIT_SIDECAR` (explicit bundle path) pass through the environment.
 
-The Tauri shell is not built in CI (needs the platform webview toolchains);
-`pnpm dev` gives the same UI in a plain browser.
+CI: PRs type-check the shell with `cargo check` on `windows-latest`
+(ci.yml `desktop-shell-check`); installers build in
+`.github/workflows/desktop.yml` (tags `v*` → attached to a draft release;
+manual runs → uploaded artifact). `pnpm dev` gives the same UI in a plain
+browser. User-facing guide: `docs/08-guia-app-escritorio-windows.md`.
