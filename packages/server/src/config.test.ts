@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
@@ -8,7 +8,7 @@ import { graphResourceUrl, loadServerConfig, resolveDataDir } from './config.js'
 
 const tmpDirs: string[] = [];
 afterAll(() => {
-  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 /** A directory that passes the "is a git repo" startup check. */
@@ -52,7 +52,7 @@ describe('loadServerConfig', () => {
     expect(config.graphs[0]!.name).toBe('acme');
     expect(config.graphs[0]!.tools).toBe('query');
     expect(config.graphs[0]!.write).toBe(false); // write mode is opt-in per graph
-    expect(config.graphs[0]!.path.endsWith('/acme')).toBe(true);
+    expect(basename(config.graphs[0]!.path)).toBe('acme');
     expect(config.dataDir).toBe(join(configPath, '..'));
   });
 
@@ -154,9 +154,11 @@ describe('loadServerConfig', () => {
   it('resolves the data dir from option, env or config location', () => {
     const configPath = writeConfig();
     expect(resolveDataDir({ configPath })).toBe(join(configPath, '..'));
-    expect(resolveDataDir({ configPath, dataDir: '/tmp/x' })).toBe('/tmp/x');
+    // The contract is "resolve the input to an absolute path"; assert exactly
+    // that (resolve('/tmp/x') is /tmp/x on POSIX, C:\tmp\x on Windows).
+    expect(resolveDataDir({ configPath, dataDir: '/tmp/x' })).toBe(resolve('/tmp/x'));
     expect(
       resolveDataDir({ configPath, env: { UNTACIT_SERVER_DATA_DIR: '/tmp/y' } as NodeJS.ProcessEnv }),
-    ).toBe('/tmp/y');
+    ).toBe(resolve('/tmp/y'));
   });
 });

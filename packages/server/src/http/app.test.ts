@@ -27,7 +27,9 @@ const cleanups: (() => Promise<void>)[] = [];
 afterAll(async () => {
   for (const cleanup of cleanups) await cleanup();
   for (const server of servers) await new Promise((r) => server.close(r));
-  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
+  // maxRetries/retryDelay: on Windows the SQLite -wal/-shm mmap lingers a few
+  // ms after close(), so a recursive rm can hit a transient EPERM/EBUSY.
+  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 /** Fixture graph repo with a couple of business nodes and hash embeddings. */

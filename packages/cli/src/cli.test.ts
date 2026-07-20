@@ -8,11 +8,17 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const BIN = join(here, 'bin.ts');
-const TSX = join(here, '../../../node_modules/.bin/tsx');
+// Run tsx's actual entry through Node rather than the `.bin/tsx` shim: the
+// shim is extensionless (unspawnable on Windows) and its .CMD wrapper would
+// still need a shell. `node .../tsx/dist/cli.mjs bin.ts ...` is portable.
+const TSX = join(here, '../../../node_modules/tsx/dist/cli.mjs');
 const BATCHES = join(here, '../../../examples/acme-manufactura/batches');
 
 function cli(args: string[]): string {
-  return execFileSync(TSX, [BIN, ...args], { encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+  return execFileSync(process.execPath, [TSX, BIN, ...args], {
+    encoding: 'utf8',
+    env: { ...process.env, NO_COLOR: '1' },
+  });
 }
 
 let repo: string;
