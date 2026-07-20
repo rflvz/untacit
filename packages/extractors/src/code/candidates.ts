@@ -9,7 +9,7 @@
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 
 export interface Candidate {
   repo: string;
@@ -69,7 +69,10 @@ export function scanRepo(rootDir: string, opts: ScanOptions): Candidate[] {
       const end = Math.min(lines.length - 1, i + context);
       candidates.push({
         repo: opts.repoName,
-        path: relative(rootDir, file),
+        // Locators are committed to the graph repo, so they must be identical
+        // across platforms: normalize the OS separator to '/' (splitting on
+        // `sep` preserves a literal backslash inside a POSIX filename).
+        path: relative(rootDir, file).split(sep).join('/'),
         line_start: start + 1,
         line_end: end + 1,
         snippet: lines.slice(start, end + 1).join('\n'),
