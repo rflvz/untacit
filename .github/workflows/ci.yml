@@ -49,10 +49,11 @@ jobs:
         with:
           workspaces: packages/app/src-tauri
 
-      # tauri::generate_context! embeds the frontend dist at compile time; an
-      # empty dir satisfies it for type-checking purposes.
-      - name: Stub the frontend dist
-        run: mkdir -p packages/app/dist
+      # tauri-build validates at compile time that the frontend dist and the
+      # sidecar resource dir exist; empty dirs satisfy it for type-checking
+      # purposes.
+      - name: Stub the frontend dist and the sidecar resource dir
+        run: mkdir -p packages/app/dist packages/app/sidecar/dist
         shell: bash
 
       - name: cargo check
