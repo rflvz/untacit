@@ -51,6 +51,21 @@ impl Shell {
     }
 }
 
+/// `current_exe()` (and, transitively, Tauri's `resource_dir()`) can return a
+/// `\\?\`-verbatim path on Windows. Node's ESM main-module resolution can't
+/// handle that prefix (`EISDIR: illegal operation on a directory, lstat 'C:'`
+/// — it mis-splits the path and stats the bare drive letter), so the sidecar
+/// never starts. Strip it before the path is ever handed to `node.exe`.
+fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+    match path.to_str() {
+        Some(s) => match s.strip_prefix(r"\\?\") {
+            Some(rest) => PathBuf::from(rest),
+            None => path,
+        },
+        None => path,
+    }
+}
+
 /// Locate the staged sidecar entry point: UNTACIT_SIDECAR env override, the
 /// Tauri resource dir (installed layout), next to the executable, then the
 /// workspace layout as a dev fallback.
@@ -75,7 +90,10 @@ fn sidecar_entry(app: &AppHandle) -> Option<PathBuf> {
         env!("CARGO_MANIFEST_DIR"),
         "/../sidecar/dist/server.mjs"
     )));
-    candidates.into_iter().find(|p| p.exists())
+    candidates
+        .into_iter()
+        .find(|p| p.exists())
+        .map(strip_verbatim_prefix)
 }
 
 /// (Re)start the sidecar against `repo`. In dev builds this is a no-op:
