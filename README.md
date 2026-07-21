@@ -63,7 +63,37 @@ live in [`docs/`](docs/).
 | [`examples/acme-manufactura`](examples/acme-manufactura) | Synthetic dataset (fictitious manufacturer): 6 batches, **150 nodes, 233 edges**, 4 designed conflicts, review queue populated, 10 eval questions, [demo script](examples/acme-manufactura/DEMO.md) |
 | [`docs/`](docs) | Vision/PRD, ontology spec, architecture, phase plan, drift & extraction-as-PR guide, privacy audit, self-hosted server design + deployment guide, Windows desktop-app guide |
 
+## Install
+
+One-line guided installers for the CLI. They detect the dependencies —
+git, Node.js ≥ 20, pnpm, plus the optional Claude Code CLI (agent engine
+for `extract` / `interview`) — install what they safely can (pnpm via
+corepack/npm, git/Node via winget on Windows) and print the exact command
+for anything they can't; then they clone, build, and put `untacit` and
+`untacit-mcp` on your PATH.
+
+**Windows (PowerShell):**
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/rflvz/untacit/main/install.ps1 | iex"
+```
+
+**macOS / Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rflvz/untacit/main/install.sh | bash
+```
+
+Everything lands under `~/.untacit` (`%LOCALAPPDATA%\untacit` on Windows);
+run the script from inside a clone of this repo and it builds in place
+instead of cloning. Flags (`--flag` on Unix, `-Flag` on Windows):
+`--ref <branch|tag>`, `--dir <path>`, `--yes`, `--no-path`, `--uninstall`.
+
 ## Quickstart
+
+With the installer above, `untacit …` on your PATH replaces the
+`node packages/cli/dist/bin.js …` invocations below (they are equivalent —
+the quickstart assumes a manual build):
 
 ```bash
 pnpm install && pnpm build && pnpm test
