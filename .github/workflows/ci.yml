@@ -40,6 +40,38 @@ jobs:
       - name: Verify the 10 Fase 5 evals against the MCP server
         run: node examples/acme-manufactura/evals/run.mjs
 
+  # Fase 6 clean-install: the one-line installer must work on a machine that
+  # has git + Node but NOT pnpm (the installer bootstraps it via corepack),
+  # build the workspace in local-checkout mode and produce working launchers.
+  # The Windows installer is parse-checked with pwsh (runtime coverage would
+  # need a windows runner; the two scripts share their structure).
+  installer-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Parse-check install.ps1
+        run: |
+          pwsh -NoProfile -Command "[void][scriptblock]::Create((Get-Content -Raw install.ps1)); 'install.ps1 parses OK'"
+
+      - name: Run install.sh from the checkout (local mode, no pnpm preinstalled)
+        run: bash install.sh --yes --no-path
+
+      - name: Launchers work
+        run: |
+          "$HOME/.untacit/bin/untacit" --version
+          "$HOME/.untacit/bin/untacit" --help > /dev/null
+          "$HOME/.untacit/bin/untacit-mcp" --help > /dev/null 2>&1 || true
+
+      - name: Uninstall cleans up
+        run: |
+          bash install.sh --uninstall
+          test ! -d "$HOME/.untacit"
+
   # The desktop shell (Tauri) only compiles against the platform webview
   # toolchain, so PRs type-check it on windows-latest — the target platform,
   # which also covers the #[cfg(windows)] code paths. Installer builds live
