@@ -199,7 +199,7 @@ function initializeBody(id = 1) {
 }
 
 describe('MCP endpoint over Streamable HTTP', () => {
-  it('serves the six query tools to an SDK client and answers a context query', async () => {
+  it('serves the eight query tools to an SDK client and answers a context query', async () => {
     const client = await connectClient('acme', h.tokenFor('ana'));
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
@@ -210,6 +210,8 @@ describe('MCP endpoint over Streamable HTTP', () => {
       'untacit_evidence',
       'untacit_explore',
       'untacit_impact',
+      'untacit_paths',
+      'untacit_similar',
     ]);
 
     const result = await client.callTool({ name: 'untacit_context', arguments: { query: 'recargo urgente' } });

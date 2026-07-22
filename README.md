@@ -54,9 +54,9 @@ live in [`docs/`](docs/).
 
 | Package | Contents |
 |---|---|
-| [`packages/core`](packages/core) | Types & ontology constants, canonical serializer, batch validator, graph store, entity resolver with reversible merges, conflict resolution, derived SQLite index (FTS5 + incremental node embeddings, semantic & hybrid RRF search), ontology diff over git, import pipeline |
+| [`packages/core`](packages/core) | Types & ontology constants, canonical serializer, batch validator, graph store, entity resolver with reversible merges, conflict resolution, derived SQLite index (FTS5 + incremental node embeddings, semantic & hybrid RRF search), graph-retrieval algorithms (spreading activation, personalized PageRank, k-best weighted paths, MMR), ontology diff over git, import pipeline |
 | [`packages/cli`](packages/cli) | `untacit init \| import \| index \| embed \| stats \| search \| conflicts \| diff \| extract \| interview \| serve-mcp \| update` |
-| [`packages/mcp`](packages/mcp) | MCP server (stdio + streamable HTTP): `untacit_context` (hybrid retrieval), `untacit_explore`, `untacit_impact`, `untacit_evidence`, `untacit_diff`, `untacit_conflicts`; agent surface for host models — `untacit_interview_gaps`, `untacit_code_candidates`, `untacit_doc_sections`, versioned prompts; full write surface behind `--write` — `untacit_import_batch`, `untacit_review_queue`, `untacit_merge_accept/reject/revert`, `untacit_conflict_resolve` (every graph write, each landing as a git commit) |
+| [`packages/mcp`](packages/mcp) | MCP server (stdio + streamable HTTP): `untacit_context` (multi-stage hybrid retrieval), `untacit_explore`, `untacit_impact`, `untacit_paths` (strongest evidence chains between two concepts), `untacit_similar` (semantic + structural + lexical similarity), `untacit_evidence`, `untacit_diff`, `untacit_conflicts`; agent surface for host models — `untacit_interview_gaps`, `untacit_code_candidates`, `untacit_doc_sections`, versioned prompts; full write surface behind `--write` — `untacit_import_batch`, `untacit_review_queue`, `untacit_merge_accept/reject/revert`, `untacit_conflict_resolve` (every graph write, each landing as a git commit) |
 | [`packages/extractors`](packages/extractors) | Code / docs (PDF, Markdown, docx with section/page locators) / interview extraction agents. Engine = Claude Code (local CLI, no API key); pluggable LLM client, strict schema emission |
 | [`packages/app`](packages/app) | Desktop app: Tauri 2 shell (system tray, native folder picker, Windows NSIS installer) + React + Sigma.js + self-contained Node sidecar |
 | [`packages/server`](packages/server) | Self-hosted MCP server over Streamable HTTP: one instance per company, multi-graph (`/graphs/<id>/mcp`), local users + OAuth 2.1 (PKCE, opaque rotating tokens), per-graph grants with an optional write level (`grant <user> <graph> --write` + `"write": true` per graph serves the full write surface), background embedding refresh; Docker artifacts in [`deploy/`](deploy) |
@@ -215,7 +215,7 @@ Two runners:
 node examples/acme-manufactura/evals/run.mjs
 
 # Agentic (CodeGraph-style): the same engine (your local Claude Code CLI,
-# no API key) answers each question twice — with only the six untacit MCP
+# no API key) answers each question twice — with only the untacit MCP query
 # tools (no source access) vs. bare. Reports accuracy and agent turns per
 # condition to benchmark/results.md.
 node examples/acme-manufactura/benchmark/run-benchmark.mjs
@@ -264,9 +264,13 @@ Built against the phase plan in [`docs/04-plan-de-fases.md`](docs/04-plan-de-fas
   of the MCP server with `--write`. Transcripts never
   persist; evidence stores role + excerpt only. The two real interviews of the
   exit criteria require real people and remain open.
-- **Fase 5 (MCP + drift)** — complete. Six query tools with Zod schemas,
-  structuredContent and read-only annotations; `untacit_context` uses hybrid
-  retrieval (lexical + semantic, RRF fusion + typed expansion). Drift over
+- **Fase 5 (MCP + drift)** — complete. Eight query tools with Zod schemas,
+  structuredContent and read-only annotations; `untacit_context` uses
+  multi-stage hybrid retrieval (lexical + semantic RRF fusion, MMR seed
+  diversification, then spreading activation blended with personalized
+  PageRank over confidence- and type-weighted edges); `untacit_paths` ranks
+  the strongest evidence chains between two concepts and `untacit_similar`
+  blends semantic, structural and name similarity as a duplicate lens. Drift over
   git in CLI (`untacit diff`), app (drift view) and MCP (`untacit_diff`),
   presented in ontology terms. Partial re-extraction: `extract code --paths`
   (also `paths` on the `untacit_code_candidates` MCP tool) plus an example

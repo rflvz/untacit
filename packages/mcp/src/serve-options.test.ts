@@ -40,6 +40,8 @@ const QUERY_TOOLS = [
   'untacit_context',
   'untacit_explore',
   'untacit_impact',
+  'untacit_paths',
+  'untacit_similar',
   'untacit_evidence',
   'untacit_diff',
   'untacit_conflicts',

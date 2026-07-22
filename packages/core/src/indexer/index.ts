@@ -551,6 +551,25 @@ export class GraphIndex {
     }));
   }
 
+  /**
+   * One-line summary row by id, straight from the nodes table — the cheap
+   * lookup traversal-based retrieval uses to materialize result nodes
+   * without touching node files. Undefined for dangling ids.
+   */
+  nodeSummary(id: string): SearchResult | undefined {
+    const row = this.db
+      .prepare('SELECT id, type, name, description FROM nodes WHERE id = ?')
+      .get(id) as { id: string; type: string; name: string; description: string } | undefined;
+    if (row === undefined) return undefined;
+    return {
+      id: row.id,
+      type: row.type as NodeType,
+      name: row.name,
+      summary: firstLine(row.description),
+      score: 0,
+    };
+  }
+
   /** Full node by id (the node file is the source of truth when present). */
   getNode(id: string): (GraphNode & { ref: NodeRef }) | undefined {
     const row = this.db.prepare('SELECT * FROM nodes WHERE id = ?').get(id) as
@@ -560,6 +579,18 @@ export class GraphIndex {
     const abs = join(this.repoRoot, ...row.file_path.split('/'));
     const node = existsSync(abs) ? readNodeFile(abs) : this.nodeFromRows(row);
     return { ...node, ref: nodeRef(node.type, node.id) };
+  }
+
+  /**
+   * Compact snapshot of every edge — the input the in-memory traversal
+   * algorithms (core/src/retrieval) consume. One query, ordered for
+   * determinism; at v1 scale (~50k edges) this is a few milliseconds.
+   */
+  allEdges(): EdgeRow[] {
+    const rows = this.db
+      .prepare('SELECT * FROM edges ORDER BY source_id, type, target_ref')
+      .all() as EdgeRowDb[];
+    return rows.map(toEdgeRow);
   }
 
   /** All edges touching a node, with direction relative to it. */

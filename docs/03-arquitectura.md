@@ -152,22 +152,31 @@ Con repo-first, la maquinaria de historial se delega en git:
 
 TypeScript SDK oficial, transportes **stdio** (default) y **streamable HTTP** (`serve-mcp --http`), prefijo `untacit_`. Requisitos de calidad para la implementación: esquemas de entrada con Zod y descripciones con ejemplos, `outputSchema`/`structuredContent` en las respuestas, resultados concisos y paginados (`limit` + cursor), errores accionables ("nodo no encontrado; usa untacit_context para buscar por texto"), y annotations correctas (las tools de consulta son `readOnlyHint: true`). El server lee siempre del índice derivado y dispara reindex si detecta el repo de grafo cambiado.
 
-Además de las seis tools de consulta, el server expone la **superficie agéntica** con la que un host con modelo propio (Claude Code, Claude Desktop) ejecuta extracción y entrevistas: `untacit_interview_gaps` (huecos + afirmaciones a verificar), `untacit_code_candidates` (scan heurístico de un repo fuente), `untacit_doc_sections` (segmentación con locators), los **prompts MCP** versionados (`untacit-interview`, `untacit-extract-code`, `untacit-extract-docs`) y — solo con `--write` — la única tool de escritura, `untacit_import_batch`, que pasa por el pipeline completo (validador → resolver → ficheros canónicos → commit, idempotente).
+Además de las ocho tools de consulta, el server expone la **superficie agéntica** con la que un host con modelo propio (Claude Code, Claude Desktop) ejecuta extracción y entrevistas: `untacit_interview_gaps` (huecos + afirmaciones a verificar), `untacit_code_candidates` (scan heurístico de un repo fuente), `untacit_doc_sections` (segmentación con locators), los **prompts MCP** versionados (`untacit-interview`, `untacit-extract-code`, `untacit-extract-docs`) y — solo con `--write` — la única tool de escritura, `untacit_import_batch`, que pasa por el pipeline completo (validador → resolver → ficheros canónicos → commit, idempotente).
 
 Tools v1 de consulta:
 
 | Tool | Entrada | Devuelve |
 |---|---|---|
-| `untacit_context` | `query`, `node_types?`, `limit?` | Subgrafo relevante: nodos (id, tipo, nombre, 1 línea) + aristas resumidas. Recuperación híbrida (§6.1) |
+| `untacit_context` | `query`, `node_types?`, `limit?`, `depth?` | Subgrafo relevante: nodos (id, tipo, nombre, 1 línea, canal de recuperación y distancia) + aristas del subgrafo inducido. Recuperación híbrida multi-etapa (§6.1) |
 | `untacit_explore` | `node_id`, `depth?`, `edge_types?` | Detalle del nodo + vecindario tipado + confianzas |
 | `untacit_impact` | `node_id`, `direction?` | Cierre transitivo por `DEPENDS_ON`/`GOVERNS`/`TRIGGERS`: el blast radius de negocio |
+| `untacit_paths` | `from_id`, `to_id`, `max_paths?`, `max_length?` | Las k mejores cadenas de evidencia entre dos conceptos (Yen sobre Dijkstra; coste por salto = −ln(confianza × peso de tipo)), de más fuerte a más débil |
+| `untacit_similar` | `node_id`, `node_types?`, `limit?` | Nodos similares mezclando coseno de embeddings (significado), Jaccard ponderado de vecindarios (estructura) y similitud de nombre (léxico); lente de duplicados/candidatos a merge |
 | `untacit_evidence` | `edge_id \| node_id` | Provenance completa con excerpts y locators |
 | `untacit_diff` | `ref_a?`, `ref_b?` | Drift entre dos refs de git del repo de grafo (por defecto, los dos últimos runs) |
 | `untacit_conflicts` | `status?` | Contradicciones abiertas con sus evidencias enfrentadas |
 
 ### 6.1 Recuperación híbrida
 
-`untacit_context` combina los tres canales de recuperación: **seeds** por fusión RRF (reciprocal rank fusion) del canal léxico (FTS5/BM25) y el semántico (k-NN sobre los embeddings de nodo del índice derivado); **expansión estructural** tipada desde los seeds, 1–2 saltos ponderando por tipo de arista y confianza; y **recorte a presupuesto** con resúmenes de una línea — profundizar es trabajo de `untacit_explore` y `untacit_evidence`.
+`untacit_context` es un pipeline de cuatro etapas (implementado en `core/src/retrieval` + `mcp/src/queries.ts`):
+
+1. **Seeds** por fusión RRF (reciprocal rank fusion) del canal léxico (FTS5/BM25) y el semántico (k-NN sobre los embeddings de nodo del índice derivado), con pools por canal más profundos que el corte final.
+2. **Diversificación MMR** del pool fusionado (similitud entre candidatos: coseno de embeddings si hay vectores, Jaccard de tokens del nombre si no), para que dos nombres del mismo concepto no quemen el presupuesto que merecen los sub-temas distintos de la pregunta.
+3. **Expansión por el grafo** desde los seeds: *spreading activation* multi-salto (1–3, por defecto 2) donde cada salto pondera por confianza de la arista × peso semántico del tipo (`DEPENDS_ON`/`GOVERNS`/`TRIGGERS` > `VALIDATES`/`CALCULATES` > `OPERATES_ON`/`PART_OF` > `IMPLEMENTED_IN`), con decaimiento por profundidad y amortiguación de hubs, mezclada con **PageRank personalizado** (random walk con reinicio en los seeds) para premiar también al nodo bien conectado cerca de varios seeds, no solo a la cadena corta fuerte.
+4. **Recorte a presupuesto** (3× el límite) por score mezclado, devolviendo el subgrafo inducido con resúmenes de una línea, canal de origen (`lexical`/`semantic`/`graph`) y distancia en saltos por nodo — profundizar es trabajo de `untacit_explore` y `untacit_evidence`.
+
+Sobre las mismas primitivas: `untacit_paths` responde "¿cómo se conectan estos dos conceptos?" con las k mejores rutas sin ciclos (Yen sobre Dijkstra, fuerza multiplicativa por cadena), y `untacit_similar` mezcla tres señales ortogonales — coseno de embeddings (qué *significa*), Jaccard ponderado de vecindarios (cómo se *conecta*) y similitud de nombre del resolver (cómo se *llama*) — como lente de duplicados y de conceptos relacionados aún sin arista.
 
 El canal semántico pesa más aquí que en un grafo de código: los identificadores de código son tokens casi únicos y el léxico basta, pero el lenguaje de negocio es sinonímico ("pago anticipado" / "prepago") y las queries de los agentes llegan en lenguaje natural. Los embeddings son los mismos que usa el resolver de entidades (`02-ontologia-spec.md §9`): un pipeline, dos consumidores.
 

@@ -2,7 +2,7 @@
  * untacit MCP server (docs/03 §6) — the graph surface for agents whose model
  * lives in the host (Claude Code, Claude Desktop).
  *
- * - Six read-only query tools over the derived index (reindexes automatically
+ * - Eight read-only query tools over the derived index (reindexes automatically
  *   when the graph repo changed on disk — GraphIndex.open is hash-based).
  * - Agent surface (src/agent.ts): interview gaps, code candidates, document
  *   sections, versioned extractor prompts, and — with `--write` — the
@@ -31,6 +31,8 @@ import {
   diffQuery,
   evidenceQuery,
   exploreQuery,
+  pathsQuery,
+  similarQuery,
 } from './queries.js';
 import { registerWriteSurface } from './review.js';
 
@@ -82,24 +84,27 @@ export function createServer(repoRoot: string, opts: ServeOptions = {}): McpServ
     {
       title: 'Business context retrieval',
       description:
-        'Retrieve the subgraph relevant to a business question: seed nodes by hybrid retrieval ' +
-        '(full-text + semantic embeddings, RRF-fused) plus their typed neighborhood, summarized ' +
-        'in one line each. Start here when you do not know node ids. ' +
+        'Retrieve the subgraph relevant to a business question. Multi-stage hybrid retrieval: ' +
+        'seeds by RRF fusion of full-text and semantic-embedding channels, MMR-diversified, then ' +
+        'multi-hop graph expansion (spreading activation blended with personalized PageRank, ' +
+        'weighted by edge confidence and type). Start here when you do not know node ids. ' +
         'Example: { "query": "pago anticipado clientes nuevos" }. ' +
-        'Deepen with untacit_explore / untacit_evidence.',
+        'Deepen with untacit_explore / untacit_evidence; connect concepts with untacit_paths.',
       inputSchema: {
         query: z.string().min(1).describe('Natural-language or keyword query, e.g. "recargo pedidos urgentes"'),
         node_types: z.array(nodeTypeEnum).optional().describe('Restrict seed nodes to these types'),
         limit: z.number().int().min(1).max(50).optional().describe('Max seed nodes (default 15)'),
+        depth: z.number().int().min(1).max(3).optional().describe('Graph expansion hops from the seeds (default 2)'),
       },
       annotations: READ_ONLY,
     },
-    async ({ query, node_types, limit }) => {
+    async ({ query, node_types, limit, depth }) => {
       const index = openIndex();
       try {
         const result = await contextQuery(index, query, {
           nodeTypes: node_types,
           limit,
+          depth,
           embeddings: await getProvider(),
         });
         if (result.nodes.length === 0) {
@@ -215,6 +220,115 @@ export function createServer(repoRoot: string, opts: ServeOptions = {}): McpServ
               text: lines.length > 1 ? lines.join('\n') : 'No impacted nodes beyond the origin.',
             },
           ],
+          structuredContent: result as unknown as Record<string, unknown>,
+        };
+      } finally {
+        index.close();
+      }
+    },
+  );
+
+  server.registerTool(
+    'untacit_paths',
+    {
+      title: 'Strongest chains between two concepts',
+      description:
+        'How are two nodes connected? Returns the k best evidence chains between them, ranked by ' +
+        'multiplicative strength (edge confidence × edge-type weight per hop), strongest first. ' +
+        'Use it to explain *why* a change in one concept touches another. Example: ' +
+        '{ "from_id": "rule-bloqueo-de-pedido-sin-prepago", "to_id": "process-facturacion-mensual" }.',
+      inputSchema: {
+        from_id: z.string().describe('Canonical node id of one endpoint'),
+        to_id: z.string().describe('Canonical node id of the other endpoint'),
+        max_paths: z.number().int().min(1).max(10).optional().describe('Paths to return (default 3)'),
+        max_length: z.number().int().min(1).max(10).optional().describe('Max hops per path (default 6)'),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ from_id, to_id, max_paths, max_length }) => {
+      const index = openIndex();
+      try {
+        const result = pathsQuery(index, from_id, to_id, { maxPaths: max_paths, maxLength: max_length });
+        if (!result) {
+          return {
+            content: [
+              { type: 'text', text: `Node "${index.nodeSummary(from_id) ? to_id : from_id}" not found. Use untacit_context to search by text.` },
+            ],
+            isError: true,
+          };
+        }
+        if (result.paths.length === 0) {
+          return {
+            content: [
+              { type: 'text', text: `No path connects ${from_id} and ${to_id} in the graph.` },
+            ],
+            structuredContent: result as unknown as Record<string, unknown>,
+          };
+        }
+        const lines = result.paths.map((path, i) => {
+          const chain = path.nodes
+            .map((n, j) => (j === 0 ? n.id : ` -${path.edges[j - 1]!.type}(${path.edges[j - 1]!.confidence})-> ${n.id}`))
+            .join('');
+          return `${i + 1}. [strength ${path.strength}] ${chain}`;
+        });
+        return {
+          content: [{ type: 'text', text: lines.join('\n') }],
+          structuredContent: result as unknown as Record<string, unknown>,
+        };
+      } finally {
+        index.close();
+      }
+    },
+  );
+
+  server.registerTool(
+    'untacit_similar',
+    {
+      title: 'Similar nodes (duplicate lens)',
+      description:
+        'Nodes most similar to a given node, blending semantic embeddings (meaning), weighted ' +
+        'neighborhood overlap (structure) and name similarity (wording). High-scoring same-type ' +
+        'results are merge/duplicate candidates; cross-type results reveal related concepts the ' +
+        'graph does not yet link. Example: { "node_id": "rule-recargo-por-pedido-urgente" }.',
+      inputSchema: {
+        node_id: z.string().describe('Canonical node id'),
+        node_types: z.array(nodeTypeEnum).optional().describe('Restrict candidates to these types'),
+        limit: z.number().int().min(1).max(30).optional().describe('Max results (default 10)'),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ node_id, node_types, limit }) => {
+      const index = openIndex();
+      try {
+        const result = await similarQuery(index, node_id, {
+          nodeTypes: node_types,
+          limit,
+          embeddings: await getProvider(),
+        });
+        if (!result) {
+          return {
+            content: [
+              { type: 'text', text: `Node "${node_id}" not found. Use untacit_context to search by text.` },
+            ],
+            isError: true,
+          };
+        }
+        if (result.similar.length === 0) {
+          return {
+            content: [{ type: 'text', text: `No similar nodes found for ${node_id}.` }],
+            structuredContent: result as unknown as Record<string, unknown>,
+          };
+        }
+        const lines = result.similar.map((n) => {
+          const parts = [
+            n.semantic !== undefined ? `sem ${n.semantic}` : null,
+            `struct ${n.structural}`,
+            `lex ${n.lexical}`,
+          ].filter((p) => p !== null);
+          return `${n.score} · [${n.type}] ${n.id} — ${n.name} (${parts.join(', ')})`;
+        });
+        return {
+          content: [{ type: 'text', text: lines.join('\n') }],
           structuredContent: result as unknown as Record<string, unknown>,
         };
       } finally {

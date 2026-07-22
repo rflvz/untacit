@@ -20,7 +20,7 @@ Skip it for generic ontology/knowledge-graph questions with no untacit repo, con
 
 - untacit has TWO distinct repos: the **source repo** (code/docs to extract FROM) and the **graph repo** (created by `untacit init`, holds node markdown + derived `.untacit/index.db`). Never point `--graph` / `UNTACIT_REPO` at the source repo.
 - Inside an agent session with the untacit MCP connected, prefer MCP tools over shelling out to the CLI.
-- Read-only tools (no `--write` needed): `untacit_context` (search by text — start here) → `untacit_explore` (node detail) → `untacit_evidence` (provenance/citations) → `untacit_impact` (blast radius) → `untacit_diff` / `untacit_conflicts` (drift & open contradictions).
+- Read-only tools (no `--write` needed): `untacit_context` (search by text — start here) → `untacit_explore` (node detail) → `untacit_evidence` (provenance/citations) → `untacit_impact` (blast radius) → `untacit_paths` (strongest chains connecting two node ids) / `untacit_similar` (duplicate/related lens for one node) → `untacit_diff` / `untacit_conflicts` (drift & open contradictions).
 - Write tools (`untacit_import_batch`, `untacit_review_queue`, `untacit_merge_accept/reject/revert`, `untacit_conflict_resolve`) only work if the server was started with `--write` — never assume they're available; if a call fails, say the server needs `--write`, don't silently downgrade.
 - Every edge carries mandatory evidence. Cite it via `untacit_evidence` instead of trusting a one-line summary.
 
