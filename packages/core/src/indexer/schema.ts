@@ -12,7 +12,7 @@
 import type Database from 'better-sqlite3';
 
 /** Bump when this DDL changes; a mismatch in `meta` forces a full rebuild. */
-export const INDEX_SCHEMA_VERSION = 2;
+export const INDEX_SCHEMA_VERSION = 3;
 
 const DDL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -74,6 +74,19 @@ CREATE TABLE IF NOT EXISTS embeddings (
   PRIMARY KEY (node_id, provider)
 );
 
+-- Late-interaction facet vectors (docs/03 §6.1): several vectors per node —
+-- facet 0 is name+aliases, facets 1..n are description segments — scored
+-- with MaxSim at query time. hash caches per-facet content like embeddings.
+CREATE TABLE IF NOT EXISTS embeddings_facets (
+  node_id  TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  facet    INTEGER NOT NULL,
+  hash     TEXT NOT NULL,
+  dims     INTEGER NOT NULL,
+  vector   BLOB NOT NULL,
+  PRIMARY KEY (node_id, provider, facet)
+);
+
 CREATE INDEX IF NOT EXISTS idx_nodes_type      ON nodes (type);
 CREATE INDEX IF NOT EXISTS idx_nodes_file      ON nodes (file_path);
 CREATE INDEX IF NOT EXISTS idx_aliases_node    ON node_aliases (node_id);
@@ -96,6 +109,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(
   description,
   tokenize = 'unicode61 remove_diacritics 2'
 );
+
+CREATE VIRTUAL TABLE IF NOT EXISTS search_vocab USING fts5vocab(search, 'row');
 `;
 
 export function createSchema(db: Database.Database): void {
@@ -109,7 +124,9 @@ export function createSchema(db: Database.Database): void {
 
 export function dropSchema(db: Database.Database): void {
   db.exec(`
+    DROP TABLE IF EXISTS search_vocab;
     DROP TABLE IF EXISTS search;
+    DROP TABLE IF EXISTS embeddings_facets;
     DROP TABLE IF EXISTS embeddings;
     DROP TABLE IF EXISTS evidence;
     DROP TABLE IF EXISTS edges;

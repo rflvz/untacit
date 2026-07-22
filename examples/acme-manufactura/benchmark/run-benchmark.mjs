@@ -5,7 +5,7 @@
  *
  *   A. WITH untacit: Claude Code in print mode connected ONLY to the
  *      untacit MCP server (strict MCP config, allowedTools restricted to the
- *      six read-only untacit_* tools, no filesystem/web). Same isolation as
+ *      read-only untacit_* query tools, no filesystem/web). Same isolation as
  *      the Fase 5 gate recorded in ../evals/RESULTS.md.
  *   B. WITHOUT untacit: same engine, no tools at all.
  *
@@ -81,6 +81,8 @@ const UNTACIT_TOOLS = [
   'untacit_context',
   'untacit_explore',
   'untacit_impact',
+  'untacit_paths',
+  'untacit_similar',
   'untacit_evidence',
   'untacit_diff',
   'untacit_conflicts',
@@ -184,7 +186,7 @@ const table = [
 const report = `# untacit benchmark
 
 Same 10 business questions (evals/evals.json), same engine (Claude Code${MODEL ? `, model \`${MODEL}\`` : ''}),
-two conditions: an agent with only the six untacit MCP tools (no source access) vs. the bare model.
+two conditions: an agent with only the untacit MCP query tools (no source access) vs. the bare model.
 
 ${table}
 

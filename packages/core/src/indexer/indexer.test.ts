@@ -918,13 +918,17 @@ describe('semanticSearch and hybridSearch', () => {
     }
   });
 
-  it('hybridSearch degrades to the lexical channel without a provider', async () => {
+  it('hybridSearch degrades to the lexical channels (BM25F + PRF) without a provider', async () => {
     const root = makeRepo();
     const index = openIndex(root);
     try {
       const lexical = index.search('prepago', { limit: 5 });
       const hybrid = await index.hybridSearch('prepago', null, { limit: 5 });
-      expect(hybrid.map((r) => r.id)).toEqual(lexical.map((r) => r.id));
+      // The direct lexical hit still wins; PRF expansion may append extra
+      // recall-oriented results behind it, but never above it.
+      expect(hybrid[0]?.id).toBe(lexical[0]?.id);
+      const hybridIds = new Set(hybrid.map((r) => r.id));
+      for (const hit of lexical) expect(hybridIds.has(hit.id)).toBe(true);
     } finally {
       index.close();
     }
@@ -944,6 +948,98 @@ describe('semanticSearch and hybridSearch', () => {
       // 2/(60+1) > 1/(60+1) for any single-channel rank-1 result.
       expect(results.length).toBeGreaterThan(1);
       expect(results.length).toBeLessThanOrEqual(4);
+    } finally {
+      index.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// prfSearch — pseudo-relevance feedback expansion
+// ---------------------------------------------------------------------------
+
+describe('prfSearch', () => {
+  it('bridges vocabulary gaps: expansion terms recall nodes the raw query misses', () => {
+    const root = makeRepo();
+    const index = openIndex(root);
+    try {
+      const plain = index.search('prepago', { limit: 10 });
+      const prf = index.prfSearch('prepago', { limit: 10 });
+      // The direct hit still leads (BM25F name boost on the original query).
+      expect(prf[0]?.id).toBe('rule-bloqueo-prepago');
+      // Expansion terms mined from the feedback doc ("pedido", "cliente",
+      // "pago"…) pull in nodes that never say "prepago" at all.
+      const plainIds = new Set(plain.map((r) => r.id));
+      const extra = prf.filter((r) => !plainIds.has(r.id));
+      expect(extra.length).toBeGreaterThan(0);
+    } finally {
+      index.close();
+    }
+  });
+
+  it('returns empty when there is no feedback to expand from', () => {
+    const root = makeRepo();
+    const index = openIndex(root);
+    try {
+      expect(index.prfSearch('zanahoria')).toEqual([]);
+    } finally {
+      index.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Facet embeddings + late-interaction search (MaxSim)
+// ---------------------------------------------------------------------------
+
+describe('facet embeddings and lateInteractionSearch', () => {
+  it('embeds one name facet plus a facet per description segment, incrementally', async () => {
+    const root = makeRepo();
+    const index = openIndex(root);
+    const provider = new HashEmbeddingProvider();
+    try {
+      const first = await index.updateFacetEmbeddings(provider);
+      expect(first.total).toBe(6);
+      expect(first.computed).toBe(6);
+      const again = await index.updateFacetEmbeddings(provider);
+      expect(again.computed).toBe(0);
+      expect(again.total).toBe(6);
+    } finally {
+      index.close();
+    }
+  });
+
+  it('MaxSim ranks a node whose single matching sentence would be diluted by mean pooling', async () => {
+    const root = makeRepo();
+    const index = openIndex(root);
+    const provider = new HashEmbeddingProvider();
+    try {
+      await index.updateEmbeddings(provider);
+      await index.updateFacetEmbeddings(provider);
+      // "condiciones de entrega" is one sentence of entity-pedido's
+      // description; late interaction scores that facet at full strength.
+      const late = await index.lateInteractionSearch('condiciones de entrega', provider, {
+        limit: 5,
+      });
+      expect(late[0]?.id).toBe('entity-pedido');
+      const single = await index.semanticSearch('condiciones de entrega', provider, { limit: 10 });
+      const singleScore = single.find((r) => r.id === 'entity-pedido')?.score ?? 0;
+      expect(late[0]!.score).toBeGreaterThan(singleScore);
+    } finally {
+      index.close();
+    }
+  });
+
+  it('hybridSearch fuses the late-interaction channel with the others', async () => {
+    const root = makeRepo();
+    const index = openIndex(root);
+    const provider = new HashEmbeddingProvider();
+    try {
+      await index.updateEmbeddings(provider);
+      const results = await index.hybridSearch('condiciones de entrega del pedido', provider, {
+        limit: 5,
+      });
+      expect(results.map((r) => r.id)).toContain('entity-pedido');
     } finally {
       index.close();
     }
