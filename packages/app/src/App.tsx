@@ -5,12 +5,15 @@ import type { StatsResponse } from './api-types.js';
 import { Chip, LogoMark } from './ds/index.js';
 import {
   baseName,
+  installUpdate,
   isDesktop,
   onRepoChanged,
+  onUpdateAvailable,
   openRepoFolder,
   pickRepo,
   shellState,
   type ShellState,
+  type UpdateInfo,
 } from './shell.js';
 import { DriftView } from './views/DriftView.js';
 import { GraphView } from './views/GraphView.js';
@@ -36,6 +39,9 @@ export function App() {
   const [shellReady, setShellReady] = useState(!isDesktop);
   // Repo reported by the sidecar (health) — the browser flow has no shell.
   const [sidecarRepo, setSidecarRepo] = useState<string | null>(null);
+  // Newer release announced by the shell's silent startup check.
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [updating, setUpdating] = useState(false);
 
   const refreshStats = () => {
     api
@@ -56,6 +62,8 @@ export function App() {
       .finally(() => setShellReady(true));
     return onRepoChanged(setShell);
   }, []);
+
+  useEffect(() => onUpdateAvailable(setUpdate), []);
 
   // Retry while the sidecar comes up (the shell spawns/restarts it alongside
   // the window, so the first fetches can race its startup). Re-runs on every
@@ -98,6 +106,17 @@ export function App() {
       })
       .catch((err: Error) => setError(err.message));
   };
+  // On Windows the shell downloads and launches the installer (the app
+  // quits); elsewhere it opens the release page. Errors land in setError.
+  const handleUpdate = () => {
+    setUpdating(true);
+    installUpdate()
+      .then(() => setUpdating(false))
+      .catch((err: Error) => {
+        setUpdating(false);
+        setError(err.message);
+      });
+  };
 
   return (
     <>
@@ -139,6 +158,17 @@ export function App() {
               </Chip>
             )}
           </div>
+        )}
+        {update !== null && (
+          <button
+            type="button"
+            className="repo-chip update-chip"
+            disabled={updating}
+            title={`untacit ${update.latest} está disponible (tienes ${update.current}). Un clic descarga y ejecuta el instalador.`}
+            onClick={handleUpdate}
+          >
+            {updating ? 'Descargando…' : `Actualizar a ${update.latest}`}
+          </button>
         )}
         <nav className="tabs">
           {TABS.map(({ id, label }) => (

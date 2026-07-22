@@ -67,6 +67,7 @@ para cambiar de grafo con un clic.
   - *Mostrar untacit*
   - *Cambiar carpeta del grafo…* (selector nativo, reinicia el motor)
   - *Abrir carpeta del grafo* (Explorador de archivos)
+  - *Buscar actualizaciones…* (consulta GitHub Releases y ofrece instalar)
   - *Salir de untacit* (cierra de verdad, matando el sidecar)
 - **Barra superior**: el chip azul muestra el grafo activo — clic para
   abrir la carpeta en el Explorador, «Cambiar…» para elegir otra. El título de
@@ -77,6 +78,17 @@ para cambiar de grafo con un clic.
   clicables. Por defecto intenta VS Code (`code -g {path}:{line}`) y después
   el visor del sistema; personalízalo con la variable de entorno
   `UNTACIT_OPEN_CMD` antes de arrancar untacit.
+
+### Actualizaciones
+
+La app comprueba GitHub Releases al arrancar (en segundo plano, sin
+molestar): si hay una versión nueva publicada aparece un chip
+**«Actualizar a X»** en la barra superior — un clic descarga el instalador
+nuevo y lo ejecuta (untacit se cierra para dejarle sitio; al terminar,
+ábrela de nuevo). También puedes comprobarlo a mano desde el menú de la
+bandeja con **«Buscar actualizaciones…»**. La carpeta del grafo elegida y
+el resto de la configuración se conservan: el instalador NSIS reinstala
+sobre la versión anterior sin tocar `%APPDATA%\dev.untacit.app`.
 
 ### Variables de entorno (opcionales, para usuarios avanzados)
 

@@ -55,7 +55,7 @@ live in [`docs/`](docs/).
 | Package | Contents |
 |---|---|
 | [`packages/core`](packages/core) | Types & ontology constants, canonical serializer, batch validator, graph store, entity resolver with reversible merges, conflict resolution, derived SQLite index (FTS5 + incremental node embeddings, semantic & hybrid RRF search), ontology diff over git, import pipeline |
-| [`packages/cli`](packages/cli) | `untacit init \| import \| index \| embed \| stats \| search \| conflicts \| diff \| extract \| interview \| serve-mcp` |
+| [`packages/cli`](packages/cli) | `untacit init \| import \| index \| embed \| stats \| search \| conflicts \| diff \| extract \| interview \| serve-mcp \| update` |
 | [`packages/mcp`](packages/mcp) | MCP server (stdio + streamable HTTP): `untacit_context` (hybrid retrieval), `untacit_explore`, `untacit_impact`, `untacit_evidence`, `untacit_diff`, `untacit_conflicts`; agent surface for host models — `untacit_interview_gaps`, `untacit_code_candidates`, `untacit_doc_sections`, versioned prompts; full write surface behind `--write` — `untacit_import_batch`, `untacit_review_queue`, `untacit_merge_accept/reject/revert`, `untacit_conflict_resolve` (every graph write, each landing as a git commit) |
 | [`packages/extractors`](packages/extractors) | Code / docs (PDF, Markdown, docx with section/page locators) / interview extraction agents. Engine = Claude Code (local CLI, no API key); pluggable LLM client, strict schema emission |
 | [`packages/app`](packages/app) | Desktop app: Tauri 2 shell (system tray, native folder picker, Windows NSIS installer) + React + Sigma.js + self-contained Node sidecar |
@@ -88,6 +88,22 @@ Everything lands under `~/.untacit` (`%LOCALAPPDATA%\untacit` on Windows);
 run the script from inside a clone of this repo and it builds in place
 instead of cloning. Flags (`--flag` on Unix, `-Flag` on Windows):
 `--ref <branch|tag>`, `--dir <path>`, `--yes`, `--no-path`, `--uninstall`.
+
+### Updating
+
+Once installed, the CLI updates itself in place — no need to re-run the
+installer:
+
+```bash
+untacit update --check   # is there a newer version? (changes nothing)
+untacit update           # fetch + rebuild the install checkout
+untacit update --ref v0.2.0   # pin a specific tag/branch
+```
+
+The desktop app checks GitHub Releases on startup and shows an
+"Actualizar a X" chip in the top bar when a new version is published — one
+click downloads and runs the new installer. You can also check on demand
+from the tray menu ("Buscar actualizaciones…").
 
 ## Quickstart
 

@@ -640,6 +640,25 @@ input[type='range'] {
   background: rgba(148, 168, 215, 0.08);
 }
 
+/* Actualización disponible (chip teal, evento del shell al arrancar) */
+.update-chip {
+  color: var(--teal);
+  border-color: rgba(41, 211, 184, 0.35);
+  background: rgba(41, 211, 184, 0.07);
+  flex-shrink: 0;
+}
+
+.update-chip:hover {
+  color: var(--teal);
+  border-color: rgba(41, 211, 184, 0.6);
+  background: rgba(41, 211, 184, 0.14);
+}
+
+.update-chip:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
 /* ---- Pantalla de bienvenida (escritorio sin carpeta elegida) ---- */
 .welcome {
   flex: 1;

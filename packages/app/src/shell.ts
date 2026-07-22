@@ -57,6 +57,48 @@ export function onRepoChanged(handler: (state: ShellState) => void): () => void 
   };
 }
 
+/** Mirror of UpdateInfo (src-tauri/src/updater.rs). */
+export interface UpdateInfo {
+  /** Version of the running app. */
+  current: string;
+  /** Latest published release (no leading `v`). */
+  latest: string;
+  updateAvailable: boolean;
+  /** Release page (fallback install path). */
+  pageUrl: string;
+  /** Direct download of the Windows installer, when the release has one. */
+  installerUrl: string | null;
+}
+
+/** Ask GitHub Releases whether a newer version exists (null in the browser). */
+export async function checkUpdate(): Promise<UpdateInfo | null> {
+  if (!isDesktop) return null;
+  return invoke<UpdateInfo>('check_update');
+}
+
+/**
+ * Apply the available update: on Windows this downloads and launches the
+ * installer (the app quits); elsewhere the release page opens in the browser.
+ */
+export async function installUpdate(): Promise<void> {
+  if (!isDesktop) return;
+  await invoke('install_update');
+}
+
+/**
+ * Subscribe to the silent startup update check (src-tauri/src/updater.rs).
+ * Returns an unsubscribe function.
+ */
+export function onUpdateAvailable(handler: (info: UpdateInfo) => void): () => void {
+  if (!isDesktop) return () => {};
+  const unlisten = listen<UpdateInfo>('untacit://update-available', (event) =>
+    handler(event.payload),
+  );
+  return () => {
+    void unlisten.then((fn) => fn());
+  };
+}
+
 /** Last path segment, handling both separators (the shell may run on Windows). */
 export function baseName(path: string): string {
   const trimmed = path.replace(/[\\/]+$/, '');
