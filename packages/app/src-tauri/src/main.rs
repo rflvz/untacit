@@ -14,6 +14,7 @@ mod config;
 mod nodejs;
 mod shell;
 mod tray;
+mod updater;
 
 use std::env;
 use std::path::PathBuf;
@@ -36,6 +37,8 @@ fn main() {
             commands::pick_repo,
             commands::set_repo,
             commands::open_repo_folder,
+            updater::check_update,
+            updater::install_update,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -68,6 +71,11 @@ fn main() {
             }
             if node_missing && !cfg!(debug_assertions) {
                 nodejs::warn_node_missing(&handle);
+            }
+            // Silent background check; release builds only — a dev shell
+            // always trails or leads the published installers.
+            if !cfg!(debug_assertions) {
+                updater::check_on_startup(&handle);
             }
             Ok(())
         })

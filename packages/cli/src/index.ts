@@ -1,12 +1,13 @@
 /**
  * untacit CLI (docs/03 §2): init | import | index | embed | stats | search |
- * diff | conflicts | extract | interview | serve-mcp. Thin composition over
- * @untacit/core and @untacit/extractors.
+ * diff | conflicts | extract | interview | serve-mcp | update. Thin
+ * composition over @untacit/core and @untacit/extractors.
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
+import { fileURLToPath } from 'node:url';
 
 import {
   DEFAULT_REVIEW_THRESHOLD,
@@ -69,12 +70,23 @@ async function providerFor(
   return createEmbeddingProvider(merged);
 }
 
+/** Version from the package manifest (works from dist/ and from src/ under tsx). */
+function cliVersion(): string {
+  try {
+    const manifest = join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json');
+    const pkg = JSON.parse(readFileSync(manifest, 'utf8')) as { version?: string };
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
 export function buildProgram(): Command {
   const program = new Command();
   program
     .name('untacit')
     .description('Grafo ontológico de la lógica de negocio: extracción con evidencia, índice local y consulta.')
-    .version('0.1.0');
+    .version(cliVersion());
 
   program
     .command('init')
@@ -672,6 +684,17 @@ export function buildProgram(): Command {
         );
         throw err;
       }
+    });
+
+  program
+    .command('update')
+    .option('--ref <branch|tag>', 'version to update to', 'main')
+    .option('--check', 'only report whether a newer version exists, change nothing', false)
+    .option('--force', 'update even if the install checkout has local changes', false)
+    .description('Update this untacit install in place (git fetch + rebuild of the install checkout)')
+    .action(async (opts: { ref: string; check: boolean; force: boolean }) => {
+      const { runUpdate } = await import('./update.js');
+      await runUpdate(opts);
     });
 
   program

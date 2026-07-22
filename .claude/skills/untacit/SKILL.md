@@ -35,6 +35,7 @@ Skip it for generic ontology/knowledge-graph questions with no untacit repo, con
 | Query without an agent host | `untacit search \| stats \| conflicts \| diff --graph <dir>` |
 | Serve to an agent host (Claude Code/Desktop) | `untacit serve-mcp --graph <dir> [--write] [--http --port <n>]` |
 | `untacit` not on PATH | `cd packages/cli && npm link` (from this monorepo) |
+| Update an installed CLI | `untacit update` (`--check` to only look; `--ref <tag>` to pin). Desktop app: chip «Actualizar a X» en la barra o tray → «Buscar actualizaciones…» |
 | Visual explorer in a window | Install the NSIS setup from [Releases](https://github.com/rflvz/untacit/releases), or build it: `pnpm --filter @untacit/app tauri build --bundles nsis` (see `docs/08-guia-app-escritorio-windows.md`). First launch shows a native folder picker for the graph repo; the choice persists to `%APPDATA%\dev.untacit.app\shell.json` — later runs reopen it automatically, no env var needed. |
 | Point the app at a different graph | Use the tray menu ("Cambiar carpeta del grafo…") or the top-bar chip inside the app, NOT by relaunching with `UNTACIT_REPO` — the persisted config always wins over the env var once a graph has been picked once. |
 

@@ -2,7 +2,7 @@
   "name": "@untacit/cli",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "untacit CLI: init | import | index | stats | search | diff | conflicts | serve-mcp | extract",
+  "description": "untacit CLI: init | import | index | stats | search | diff | conflicts | serve-mcp | extract | update",
   "type": "module",
   "bin": {
     "untacit": "./dist/bin.js"

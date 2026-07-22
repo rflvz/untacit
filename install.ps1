@@ -336,5 +336,6 @@ Write-Host '   Get started:'
 Write-Host '     untacit init C:\graphs\my-graph' -ForegroundColor Cyan
 Write-Host '     untacit --help' -ForegroundColor Cyan
 Write-Host '     guided demo: examples/acme-manufactura/DEMO.md' -ForegroundColor DarkGray
+Write-Host '     update later with: untacit update' -ForegroundColor DarkGray
 Write-Host ('  ' + ('-' * 48)) -ForegroundColor Green
 Write-Host ''

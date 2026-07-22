@@ -7,7 +7,7 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::AppHandle;
 
-use crate::{commands, shell};
+use crate::{commands, shell, updater};
 
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Mostrar untacit", true, None::<&str>)?;
@@ -25,10 +25,24 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         true,
         None::<&str>,
     )?;
+    let update = MenuItem::with_id(
+        app,
+        "check-update",
+        "Buscar actualizaciones…",
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "Salir de untacit", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&show, &change, &reveal, &PredefinedMenuItem::separator(app)?, &quit],
+        &[
+            &show,
+            &change,
+            &reveal,
+            &PredefinedMenuItem::separator(app)?,
+            &update,
+            &quit,
+        ],
     )?;
 
     let mut tray = TrayIconBuilder::with_id("untacit-tray")
@@ -43,6 +57,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
                     eprintln!("[untacit] open folder from tray failed: {err}");
                 }
             }
+            "check-update" => updater::check_from_tray(app),
             "quit" => app.exit(0),
             _ => {}
         })
