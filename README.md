@@ -54,7 +54,7 @@ live in [`docs/`](docs/).
 
 | Package | Contents |
 |---|---|
-| [`packages/core`](packages/core) | Types & ontology constants, canonical serializer, batch validator, graph store, entity resolver with reversible merges, conflict resolution, derived SQLite index (FTS5 + incremental node embeddings, semantic & hybrid RRF search), graph-retrieval algorithms (spreading activation, personalized PageRank, k-best weighted paths, MMR), ontology diff over git, import pipeline |
+| [`packages/core`](packages/core) | Types & ontology constants, canonical serializer, batch validator, graph store, entity resolver with reversible merges, conflict resolution, derived SQLite index (BM25F fielded FTS5, RM3 pseudo-relevance query expansion, incremental node + facet embeddings, late-interaction MaxSim, weighted-RRF hybrid search), graph-retrieval algorithms (spreading activation, personalized PageRank, k-best weighted paths, spectral structural embeddings, MMR), ontology diff over git, import pipeline |
 | [`packages/cli`](packages/cli) | `untacit init \| import \| index \| embed \| stats \| search \| conflicts \| diff \| extract \| interview \| serve-mcp \| update` |
 | [`packages/mcp`](packages/mcp) | MCP server (stdio + streamable HTTP): `untacit_context` (multi-stage hybrid retrieval), `untacit_explore`, `untacit_impact`, `untacit_paths` (strongest evidence chains between two concepts), `untacit_similar` (semantic + structural + lexical similarity), `untacit_evidence`, `untacit_diff`, `untacit_conflicts`; agent surface for host models — `untacit_interview_gaps`, `untacit_code_candidates`, `untacit_doc_sections`, versioned prompts; full write surface behind `--write` — `untacit_import_batch`, `untacit_review_queue`, `untacit_merge_accept/reject/revert`, `untacit_conflict_resolve` (every graph write, each landing as a git commit) |
 | [`packages/extractors`](packages/extractors) | Code / docs (PDF, Markdown, docx with section/page locators) / interview extraction agents. Engine = Claude Code (local CLI, no API key); pluggable LLM client, strict schema emission |
@@ -266,11 +266,14 @@ Built against the phase plan in [`docs/04-plan-de-fases.md`](docs/04-plan-de-fas
   exit criteria require real people and remain open.
 - **Fase 5 (MCP + drift)** — complete. Eight query tools with Zod schemas,
   structuredContent and read-only annotations; `untacit_context` uses
-  multi-stage hybrid retrieval (lexical + semantic RRF fusion, MMR seed
-  diversification, then spreading activation blended with personalized
-  PageRank over confidence- and type-weighted edges); `untacit_paths` ranks
-  the strongest evidence chains between two concepts and `untacit_similar`
-  blends semantic, structural and name similarity as a duplicate lens. Drift over
+  multi-stage hybrid retrieval (weighted RRF over four channels — BM25F
+  fielded lexical, RM3 pseudo-relevance expansion, mean-pooled semantic
+  k-NN and ColBERT-style late-interaction MaxSim over per-facet vectors —
+  then MMR seed diversification and spreading activation blended with
+  personalized PageRank over confidence- and type-weighted edges);
+  `untacit_paths` ranks the strongest evidence chains between two concepts
+  and `untacit_similar` blends semantic, structural (neighborhood overlap +
+  spectral graph embeddings) and name similarity as a duplicate lens. Drift over
   git in CLI (`untacit diff`), app (drift view) and MCP (`untacit_diff`),
   presented in ontology terms. Partial re-extraction: `extract code --paths`
   (also `paths` on the `untacit_code_candidates` MCP tool) plus an example

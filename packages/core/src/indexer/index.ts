@@ -165,6 +165,19 @@ function toFtsQuery(raw: string): string | undefined {
   return phrases.join(' ');
 }
 
+/**
+ * Tokenize like the FTS table does (unicode61, remove_diacritics 2, lowered),
+ * so PRF candidate terms line up with the `search_vocab` statistics.
+ */
+function ftsTokens(text: string): string[] {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 0);
+}
+
 function toEdgeRow(row: EdgeRowDb): EdgeRow {
   const edge: EdgeRow = {
     id: row.id,
@@ -221,6 +234,32 @@ function decodeVector(blob: Buffer): number[] {
 /** Cache key of a node's vector: provider identity + embedded text. */
 function embeddingHash(providerName: string, text: string): string {
   return sha1(`${providerName}\0${text}`);
+}
+
+/** Facet cap per node: name facet + up to this many description segments. */
+const MAX_DESCRIPTION_FACETS = 5;
+
+/**
+ * Split a description into sentence-ish segments for late-interaction
+ * embedding: newline first, then sentence enders. Short fragments (< 15
+ * chars) merge into their neighbor so facets stay meaningful; at most
+ * MAX_DESCRIPTION_FACETS survive (the head of the description wins).
+ */
+function segmentDescription(description: string): string[] {
+  const rough = description
+    .split(/\n+/)
+    .flatMap((line) => line.split(/(?<=[.!?;])\s+/))
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  const segments: string[] = [];
+  for (const piece of rough) {
+    if (piece.length < 15 && segments.length > 0) {
+      segments[segments.length - 1] += ` ${piece}`;
+    } else {
+      segments.push(piece);
+    }
+  }
+  return segments.slice(0, MAX_DESCRIPTION_FACETS);
 }
 
 // ---------------------------------------------------------------------------
@@ -387,7 +426,8 @@ export function buildIndex(
 
 /**
  * Refresh the derived index and its node embeddings in one shot: incremental
- * reindex by file hash, then incremental re-embedding by content hash.
+ * reindex by file hash, then incremental re-embedding by content hash — both
+ * the mean-pooled node vectors and the late-interaction facet vectors.
  */
 export async function buildEmbeddings(
   repoRoot: string,
@@ -395,7 +435,9 @@ export async function buildEmbeddings(
 ): Promise<EmbeddingUpdateResult> {
   const index = GraphIndex.open(repoRoot);
   try {
-    return await index.updateEmbeddings(provider);
+    const result = await index.updateEmbeddings(provider);
+    const facets = await index.updateFacetEmbeddings(provider);
+    return { ...result, computed: result.computed + facets.computed };
   } finally {
     index.close();
   }
@@ -459,20 +501,33 @@ export class GraphIndex {
     syncIndex(this.db, this.repoRoot);
   }
 
-  /** FTS5 search over name + aliases + description, bm25 ranked. */
+  /**
+   * FTS5 search over name + aliases + description, BM25F ranked: fielded
+   * bm25 weights (name 8 > aliases 4 > description 1) so a hit on what a
+   * node is *called* outranks the same term buried in prose. Column 0
+   * (node_id, UNINDEXED) gets weight 0.
+   */
   search(
     query: string,
     opts?: { types?: NodeType[]; limit?: number; offset?: number },
   ): SearchResult[] {
     const match = toFtsQuery(query);
     if (match === undefined) return [];
+    return this.searchWithMatch(match, opts);
+  }
+
+  /** Shared FTS runner for `search` (plain query) and `prfSearch` (expanded). */
+  private searchWithMatch(
+    match: string,
+    opts?: { types?: NodeType[]; limit?: number; offset?: number },
+  ): SearchResult[] {
     const limit = opts?.limit ?? 20;
     const offset = opts?.offset ?? 0;
     const types = opts?.types !== undefined && opts.types.length > 0 ? opts.types : undefined;
 
     let sql = `
       SELECT n.id AS id, n.type AS type, n.name AS name, n.description AS description,
-             bm25(search) AS rank
+             bm25(search, 0.0, 8.0, 4.0, 1.0) AS rank
       FROM search
       JOIN nodes n ON n.id = search.node_id
       WHERE search MATCH ?`;
@@ -499,6 +554,70 @@ export class GraphIndex {
       // so callers get a positive, higher-is-better score.
       score: -r.rank,
     }));
+  }
+
+  /**
+   * Pseudo-relevance-feedback search (RM3-lite, docs/03 §6.1): run the plain
+   * BM25F query, mine the top feedback documents for expansion terms scored
+   * by tf-in-feedback × idf (doc frequencies from the fts5vocab shadow of
+   * the search table), then re-run the query expanded with the best terms
+   * (`(original) OR t1 OR t2 …`). Bridges vocabulary gaps the embedding
+   * channel misses at the price of a second FTS pass — e.g. "prepago" pulls
+   * in nodes that only ever say "pago anticipado" because both co-occur in
+   * the feedback set. Returns [] when there is nothing to expand with
+   * (no feedback hits, or no informative terms), so the fusion layer can
+   * skip the channel cleanly.
+   */
+  prfSearch(
+    query: string,
+    opts?: { types?: NodeType[]; limit?: number; feedbackDocs?: number; expansionTerms?: number },
+  ): SearchResult[] {
+    const match = toFtsQuery(query);
+    if (match === undefined) return [];
+    const feedbackDocs = opts?.feedbackDocs ?? 8;
+    const expansionTerms = opts?.expansionTerms ?? 5;
+
+    const feedback = this.searchWithMatch(match, { types: opts?.types, limit: feedbackDocs });
+    if (feedback.length === 0) return [];
+
+    // Term frequencies over the feedback docs' full indexed text.
+    const queryTerms = new Set(ftsTokens(query));
+    const tf = new Map<string, number>();
+    const docText = this.db.prepare(
+      `SELECT n.name AS name, n.description AS description,
+              (SELECT GROUP_CONCAT(alias, ' ') FROM node_aliases a WHERE a.node_id = n.id) AS aliases
+       FROM nodes n WHERE n.id = ?`,
+    );
+    for (const hit of feedback) {
+      const row = docText.get(hit.id) as
+        | { name: string; description: string; aliases: string | null }
+        | undefined;
+      if (row === undefined) continue;
+      for (const term of ftsTokens(`${row.name} ${row.aliases ?? ''} ${row.description}`)) {
+        if (term.length < 3 || queryTerms.has(term)) continue;
+        tf.set(term, (tf.get(term) ?? 0) + 1);
+      }
+    }
+    if (tf.size === 0) return [];
+
+    // idf from the fts5vocab row-level statistics; terms the tokenizer never
+    // produced (or that appear everywhere) score toward zero.
+    const totalDocs = (this.db.prepare('SELECT COUNT(*) AS c FROM nodes').get() as { c: number }).c;
+    const dfStmt = this.db.prepare('SELECT doc AS df FROM search_vocab WHERE term = ?');
+    const scored: { term: string; score: number }[] = [];
+    for (const [term, freq] of tf) {
+      const row = dfStmt.get(term) as { df: number } | undefined;
+      if (row === undefined) continue;
+      const idf = Math.log(1 + totalDocs / (1 + row.df));
+      const score = freq * idf;
+      if (score > 0) scored.push({ term, score });
+    }
+    if (scored.length === 0) return [];
+    scored.sort((a, b) => b.score - a.score || a.term.localeCompare(b.term));
+
+    const terms = scored.slice(0, expansionTerms).map((t) => `"${t.term.replaceAll('"', '""')}"`);
+    const expanded = `(${match}) OR ${terms.join(' OR ')}`;
+    return this.searchWithMatch(expanded, { types: opts?.types, limit: opts?.limit ?? 20 });
   }
 
   /**
@@ -850,6 +969,140 @@ export class GraphIndex {
   }
 
   /**
+   * Bring the `embeddings_facets` table up to date: facet 0 is
+   * "type name aliases", facets 1..n are description segments
+   * (segmentDescription). Incremental per node by joint content hash — a
+   * node re-embeds all its facets only when any facet text (or the facet
+   * count) changed. This is the deliberately compute-heavier sibling of
+   * `updateEmbeddings` (docs/03 §6.1): several vectors per node instead of
+   * one mean-pooled vector, so a query can match one sentence of a long
+   * description at full strength instead of being diluted across the pool.
+   */
+  async updateFacetEmbeddings(provider: EmbeddingProvider): Promise<EmbeddingUpdateResult> {
+    const removed =
+      this.db
+        .prepare('DELETE FROM embeddings_facets WHERE node_id NOT IN (SELECT id FROM nodes)')
+        .run().changes ?? 0;
+
+    // Stored joint hash per node: sha1 over the per-facet hashes in order.
+    const known = new Map<string, string>();
+    const knownRows = this.db
+      .prepare(
+        'SELECT node_id, hash FROM embeddings_facets WHERE provider = ? ORDER BY node_id, facet',
+      )
+      .all(provider.name) as { node_id: string; hash: string }[];
+    const grouped = new Map<string, string[]>();
+    for (const row of knownRows) {
+      const list = grouped.get(row.node_id);
+      if (list === undefined) grouped.set(row.node_id, [row.hash]);
+      else list.push(row.hash);
+    }
+    for (const [id, hashes] of grouped) known.set(id, sha1(hashes.join('|')));
+
+    const stale: { id: string; facets: { text: string; hash: string }[] }[] = [];
+    for (const { id, facets } of this.nodeFacetTexts()) {
+      const withHashes = facets.map((text) => ({ text, hash: embeddingHash(provider.name, text) }));
+      const joint = sha1(withHashes.map((f) => f.hash).join('|'));
+      if (known.get(id) !== joint) stale.push({ id, facets: withHashes });
+    }
+
+    if (stale.length > 0) {
+      const texts = stale.flatMap((s) => s.facets.map((f) => f.text));
+      const vectors = await provider.embed(texts, 'passage');
+      if (vectors.length !== texts.length) {
+        throw new Error(
+          `Embedding provider "${provider.name}" returned ${vectors.length} vectors for ${texts.length} facet texts`,
+        );
+      }
+      const del = this.db.prepare(
+        'DELETE FROM embeddings_facets WHERE node_id = ? AND provider = ?',
+      );
+      const ins = this.db.prepare(
+        'INSERT OR REPLACE INTO embeddings_facets (node_id, provider, facet, hash, dims, vector) VALUES (?, ?, ?, ?, ?, ?)',
+      );
+      const tx = this.db.transaction(() => {
+        let cursor = 0;
+        for (const s of stale) {
+          del.run(s.id, provider.name);
+          s.facets.forEach((f, facetIdx) => {
+            const vector = vectors[cursor]!;
+            cursor += 1;
+            // Same rule as updateEmbeddings: an empty vector must never look
+            // fresh under a valid content hash.
+            if (vector.length === 0) return;
+            ins.run(s.id, provider.name, facetIdx, f.hash, vector.length, encodeVector(vector));
+          });
+        }
+      });
+      tx();
+    }
+
+    const total = (
+      this.db
+        .prepare('SELECT COUNT(DISTINCT node_id) AS c FROM embeddings_facets WHERE provider = ?')
+        .get(provider.name) as { c: number }
+    ).c;
+    return { provider: provider.name, computed: stale.length, removed, total };
+  }
+
+  /**
+   * Late-interaction semantic search (ColBERT-style MaxSim over the facet
+   * vectors, docs/03 §6.1): the query embeds once, every node scores as the
+   * MAXIMUM cosine over its facet vectors — a node whose *one* relevant
+   * sentence matches the query ranks as if that sentence were its whole
+   * text, instead of the signal drowning in mean-pooled prose. Costs
+   * (facets × nodes) cosines per query; empty when the facet table has no
+   * matching vectors.
+   */
+  async lateInteractionSearch(
+    query: string,
+    provider: EmbeddingProvider,
+    opts?: { types?: NodeType[]; limit?: number },
+  ): Promise<SearchResult[]> {
+    const limit = opts?.limit ?? 20;
+    const types =
+      opts?.types !== undefined && opts.types.length > 0 ? new Set<string>(opts.types) : undefined;
+    const [queryVec] = await provider.embed([query], 'query');
+    if (queryVec === undefined || !queryVec.some((v) => v !== 0)) return [];
+
+    const rows = this.db
+      .prepare(
+        `SELECT n.id AS id, n.type AS type, n.name AS name, n.description AS description, f.vector AS vector
+         FROM embeddings_facets f JOIN nodes n ON n.id = f.node_id
+         WHERE f.provider = ? AND f.dims = ?
+         ORDER BY n.id, f.facet`,
+      )
+      .all(provider.name, queryVec.length) as {
+      id: string;
+      type: string;
+      name: string;
+      description: string;
+      vector: Buffer;
+    }[];
+
+    const best = new Map<string, SearchResult>();
+    for (const row of rows) {
+      if (types !== undefined && !types.has(row.type)) continue;
+      const score = cosineSimilarity(queryVec, decodeVector(row.vector));
+      const entry = best.get(row.id);
+      if (entry === undefined) {
+        best.set(row.id, {
+          id: row.id,
+          type: row.type as NodeType,
+          name: row.name,
+          summary: firstLine(row.description),
+          score,
+        });
+      } else if (score > entry.score) {
+        entry.score = score;
+      }
+    }
+    return [...best.values()]
+      .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+      .slice(0, limit);
+  }
+
+  /**
    * k-NN over the cached node vectors (cosine, linear scan). At v1 scale
    * (thousands of nodes) a scan is milliseconds; sqlite-vec remains the
    * planned upgrade path if graphs outgrow it (docs/03 §3).
@@ -898,11 +1151,22 @@ export class GraphIndex {
   }
 
   /**
-   * Hybrid retrieval (docs/03 §6.1): reciprocal-rank fusion of the lexical
-   * channel (FTS5/bm25) and the semantic channel (embedding k-NN). With no
-   * provider — or an empty embeddings table — it degrades to lexical only.
-   * RRF score: Σ 1/(60 + rank), summed over the channels that returned the
-   * node; the fused score is reported in `score`.
+   * Hybrid retrieval (docs/03 §6.1): weighted reciprocal-rank fusion of up
+   * to four channels —
+   *
+   *   - lexical (BM25F, fielded weights)                weight 1.0
+   *   - lexical-prf (RM3 pseudo-relevance expansion)    weight 0.5
+   *   - semantic (mean-pooled embedding k-NN)           weight 0.9
+   *   - semantic-multivec (late-interaction MaxSim)     weight 1.0
+   *
+   * Fused score: Σ w_c / (60 + rank_c) over the channels that returned the
+   * node — RRF's rank basis keeps incomparable channel scores commensurable,
+   * the weights encode channel trust (PRF expansions are recall-oriented and
+   * intentionally down-weighted). With no provider — or empty vector
+   * tables — the semantic channels drop out and it degrades to
+   * lexical + PRF; the fused score is reported in `score`. The facet-vector
+   * cache is refreshed incrementally before the multivec channel runs (safe
+   * on every read, like updateEmbeddings).
    */
   async hybridSearch(
     query: string,
@@ -913,16 +1177,26 @@ export class GraphIndex {
     // Each channel contributes a pool deeper than the final cut so fusion has
     // something to work with beyond the head of each ranking.
     const pool = Math.max(limit * 3, 30);
-    const lexical = this.search(query, { types: opts?.types, limit: pool });
-    const semantic =
-      provider !== null ? await this.semanticSearch(query, provider, { types: opts?.types, limit: pool }) : [];
+    const searchOpts = { types: opts?.types, limit: pool };
+
+    const channels: { weight: number; results: SearchResult[] }[] = [
+      { weight: 1.0, results: this.search(query, searchOpts) },
+      { weight: 0.5, results: this.prfSearch(query, searchOpts) },
+    ];
+    if (provider !== null) {
+      await this.updateFacetEmbeddings(provider);
+      channels.push(
+        { weight: 0.9, results: await this.semanticSearch(query, provider, searchOpts) },
+        { weight: 1.0, results: await this.lateInteractionSearch(query, provider, searchOpts) },
+      );
+    }
 
     const K = 60;
     const fused = new Map<string, SearchResult & { fusedScore: number }>();
-    for (const channel of [lexical, semantic]) {
-      channel.forEach((result, rank) => {
+    for (const { weight, results } of channels) {
+      results.forEach((result, rank) => {
         const entry = fused.get(result.id);
-        const contribution = 1 / (K + rank + 1);
+        const contribution = weight / (K + rank + 1);
         if (entry === undefined) {
           fused.set(result.id, { ...result, fusedScore: contribution });
         } else {
@@ -1012,6 +1286,24 @@ export class GraphIndex {
           description: row.description,
         }),
       };
+    });
+  }
+
+  /**
+   * Facet texts per node for late interaction: facet 0 = "type name aliases"
+   * (what the node IS), facets 1..n = description segments (what it SAYS).
+   */
+  private nodeFacetTexts(): { id: string; facets: string[] }[] {
+    const nodes = this.db
+      .prepare('SELECT id, type, name, description FROM nodes ORDER BY id')
+      .all() as { id: string; type: string; name: string; description: string }[];
+    const aliasStmt = this.db.prepare(
+      'SELECT alias FROM node_aliases WHERE node_id = ? ORDER BY rowid',
+    );
+    return nodes.map((row) => {
+      const aliases = (aliasStmt.all(row.id) as { alias: string }[]).map((a) => a.alias);
+      const nameFacet = [row.type, row.name, ...aliases].join(' ').trim();
+      return { id: row.id, facets: [nameFacet, ...segmentDescription(row.description)] };
     });
   }
 

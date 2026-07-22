@@ -25,6 +25,7 @@ import {
   mmrSelect,
   nameSimilarity,
   personalizedPageRank,
+  spectralEmbedding,
   spreadingActivation,
 } from '@untacit/core';
 
@@ -33,7 +34,12 @@ import {
 // ---------------------------------------------------------------------------
 
 /** Which retrieval stage(s) surfaced a node. */
-export type RetrievalChannel = 'lexical' | 'semantic' | 'graph';
+export type RetrievalChannel =
+  | 'lexical'
+  | 'lexical-prf'
+  | 'semantic'
+  | 'semantic-multivec'
+  | 'graph';
 
 export interface ContextNode extends SearchResult {
   seed: boolean;
@@ -85,12 +91,15 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 /**
  * Hybrid multi-stage retrieval (docs/03 §6.1):
  *
- *   1. Seeding — RRF fusion of the lexical channel (FTS5/bm25) and the
- *      semantic channel (embedding k-NN), each contributing a pool deeper
- *      than the final cut. Without a provider (or an empty vector cache)
- *      seeding degrades to lexical only. The vector cache is refreshed
- *      incrementally before seeding, so post-pull staleness never serves
- *      stale vectors.
+ *   1. Seeding — weighted RRF fusion of four channels: lexical (BM25F,
+ *      fielded weights), lexical-prf (RM3 pseudo-relevance query expansion,
+ *      down-weighted — recall-oriented), semantic (mean-pooled embedding
+ *      k-NN) and semantic-multivec (ColBERT-style late-interaction MaxSim
+ *      over per-facet vectors). Each channel contributes a pool deeper than
+ *      the final cut. Without a provider (or empty vector caches) the
+ *      semantic channels drop out and seeding degrades to lexical + PRF.
+ *      Both vector caches are refreshed incrementally before seeding, so
+ *      post-pull staleness never serves stale vectors.
  *   2. Diversification — MMR over the fused pool, so near-duplicate seeds
  *      (same concept found under two names) don't burn the budget that
  *      distinct sub-topics of the question deserve.
@@ -110,28 +119,35 @@ export async function contextQuery(
   const limit = Math.min(opts.limit ?? 15, 50);
   const depth = Math.min(Math.max(opts.depth ?? 2, 1), 3);
   const provider = opts.embeddings ?? null;
-  if (provider !== null) await index.updateEmbeddings(provider);
+  if (provider !== null) {
+    await index.updateEmbeddings(provider);
+    await index.updateFacetEmbeddings(provider);
+  }
 
-  // --- Stage 1: dual-channel seeding, RRF-fused, channel provenance kept.
+  // --- Stage 1: multi-channel seeding, weighted-RRF fused, channel
+  // provenance kept. Channel weights mirror GraphIndex.hybridSearch: PRF is
+  // recall-oriented (down-weighted), late interaction is precision-oriented.
   const pool = Math.max(limit * 3, 30);
-  const lexical = index.search(query, { types: opts.nodeTypes, limit: pool });
-  const semantic =
-    provider !== null
-      ? await index.semanticSearch(query, provider, { types: opts.nodeTypes, limit: pool })
-      : [];
+  const searchOpts = { types: opts.nodeTypes, limit: pool };
+  const channelRuns: [RetrievalChannel, number, SearchResult[]][] = [
+    ['lexical', 1.0, index.search(query, searchOpts)],
+    ['lexical-prf', 0.5, index.prfSearch(query, searchOpts)],
+  ];
+  if (provider !== null) {
+    channelRuns.push(
+      ['semantic', 0.9, await index.semanticSearch(query, provider, searchOpts)],
+      ['semantic-multivec', 1.0, await index.lateInteractionSearch(query, provider, searchOpts)],
+    );
+  }
 
   interface FusedSeed extends SearchResult {
     fused: number;
     channels: RetrievalChannel[];
   }
   const fused = new Map<string, FusedSeed>();
-  const channelRuns: [RetrievalChannel, SearchResult[]][] = [
-    ['lexical', lexical],
-    ['semantic', semantic],
-  ];
-  for (const [channel, run] of channelRuns) {
+  for (const [channel, weight, run] of channelRuns) {
     run.forEach((result, rank) => {
-      const contribution = 1 / (RRF_K + rank + 1);
+      const contribution = weight / (RRF_K + rank + 1);
       const entry = fused.get(result.id);
       if (entry === undefined) {
         fused.set(result.id, { ...result, fused: contribution, channels: [channel] });
@@ -228,11 +244,23 @@ export async function contextQuery(
     });
   }
 
-  // Edges of the induced subgraph over the kept nodes, strongest first.
+  // Edges of the induced subgraph over the kept nodes. Trim order: edges
+  // touching a seed first (they explain the retrieved context directly),
+  // then by hop distance of the closest endpoint, then by weight — so a
+  // low-weight IMPLEMENTED_IN on a seed survives the cut ahead of a strong
+  // edge deep in the expansion.
   const edges: EdgeRow[] = [];
   const traversed = [...activation.edges.values()] as EdgeRow[];
+  const edgeDistance = (e: EdgeRow): number =>
+    Math.min(
+      activation.distance.get(e.source) ?? depth,
+      activation.distance.get(e.targetId) ?? depth,
+    );
   traversed.sort(
-    (a, b) => edgeWeight(b) - edgeWeight(a) || a.id.localeCompare(b.id),
+    (a, b) =>
+      edgeDistance(a) - edgeDistance(b) ||
+      edgeWeight(b) - edgeWeight(a) ||
+      a.id.localeCompare(b.id),
   );
   for (const edge of traversed) {
     if (edges.length >= budget) {
@@ -356,7 +384,11 @@ export interface SimilarNode extends SearchResult {
   score: number;
   /** Embedding cosine (absent without a provider or cached vectors). */
   semantic?: number;
-  /** Weighted Jaccard over the two nodes' neighborhoods. */
+  /**
+   * Structural similarity: weighted neighborhood Jaccard blended with the
+   * cosine of the two nodes' spectral graph embeddings (local overlap +
+   * global graph position).
+   */
   structural: number;
   /** Name similarity (Levenshtein/token Jaccard max, resolver formula). */
   lexical: number;
@@ -368,15 +400,19 @@ export interface SimilarResult {
 }
 
 const SIMILAR_WEIGHTS = { semantic: 0.45, structural: 0.35, lexical: 0.2 };
+/** Inside the structural signal: local neighborhood overlap vs global position. */
+const STRUCTURAL_JACCARD_SHARE = 0.6;
 
 /**
  * Nodes similar to a given node, blending three orthogonal signals:
- * embedding cosine (what it *means*), weighted neighborhood Jaccard (how it
- * *connects* — two rules validating the same processes are alike even with
- * disjoint wording), and resolver name similarity (what it is *called*).
- * Without embeddings the semantic weight is redistributed onto the other two.
- * This is also the "possible duplicate" lens: a high blend on two same-type
- * nodes is exactly what a merge candidate looks like.
+ * embedding cosine (what it *means*), structural similarity (how it
+ * *connects* — weighted neighborhood Jaccard for local overlap, blended with
+ * spectral-embedding cosine so nodes occupying the same *global* graph
+ * position score even without directly shared neighbors), and resolver name
+ * similarity (what it is *called*). Without embeddings the semantic weight
+ * is redistributed onto the other two. This is also the "possible
+ * duplicate" lens: a high blend on two same-type nodes is exactly what a
+ * merge candidate looks like.
  */
 export async function similarQuery(
   index: GraphIndex,
@@ -395,22 +431,16 @@ export async function similarQuery(
   }
   const originVec = vectors.get(nodeId);
 
-  // Neighborhood weight maps (other node → strongest connecting edge weight),
-  // built once from the full edge snapshot.
+  // One adjacency build feeds both structural signals: the neighborhood
+  // weight maps (local overlap) and the spectral embedding (global position).
+  const adjacency = buildAdjacency(index.allEdges());
+  const spectral = spectralEmbedding(adjacency);
+  const originSpectral = spectral.get(nodeId);
   const neighborWeights = new Map<string, Map<string, number>>();
-  const noteNeighbor = (a: string, b: string, w: number): void => {
-    let map = neighborWeights.get(a);
-    if (map === undefined) {
-      map = new Map();
-      neighborWeights.set(a, map);
-    }
-    map.set(b, Math.max(map.get(b) ?? 0, w));
-  };
-  for (const edge of index.allEdges()) {
-    if (edge.source === edge.targetId) continue;
-    const w = edgeWeight(edge);
-    noteNeighbor(edge.source, edge.targetId, w);
-    noteNeighbor(edge.targetId, edge.source, w);
+  for (const [id, hops] of adjacency) {
+    const map = new Map<string, number>();
+    for (const hop of hops) map.set(hop.other, Math.max(map.get(hop.other) ?? 0, hop.weight));
+    neighborWeights.set(id, map);
   }
   const originNeighbors = neighborWeights.get(nodeId) ?? new Map<string, number>();
 
@@ -442,9 +472,18 @@ export async function similarQuery(
     for (const ours of originNames) {
       lexical = Math.max(lexical, nameSimilarity(ours, candidate.name));
     }
-    const structural = weightedJaccard(
+    const overlap = weightedJaccard(
       neighborWeights.get(candidate.id) ?? new Map<string, number>(),
     );
+    const candidateSpectral = spectral.get(candidate.id);
+    const position =
+      originSpectral !== undefined &&
+      candidateSpectral !== undefined &&
+      candidateSpectral.length === originSpectral.length
+        ? Math.max(0, cosineSimilarity(originSpectral, candidateSpectral))
+        : 0;
+    const structural =
+      STRUCTURAL_JACCARD_SHARE * overlap + (1 - STRUCTURAL_JACCARD_SHARE) * position;
     const candidateVec = vectors.get(candidate.id);
     const semantic =
       originVec !== undefined &&

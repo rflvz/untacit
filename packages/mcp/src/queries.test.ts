@@ -42,8 +42,10 @@ describe('contextQuery', () => {
     const result = await contextQuery(index, 'prepago');
     const seedIds = result.nodes.filter((n) => n.seed).map((n) => n.id);
     expect(seedIds).toContain('rule-bloqueo-de-pedido-sin-prepago');
-    const expandedIds = result.nodes.filter((n) => !n.seed).map((n) => n.id);
-    expect(expandedIds).toContain('process-alta-de-pedido');
+    // The governed process reaches the result set — as a PRF seed (the
+    // expansion term "pedido" recalls it lexically) or by graph expansion.
+    expect(result.nodes.map((n) => n.id)).toContain('process-alta-de-pedido');
+    expect(result.nodes.some((n) => !n.seed)).toBe(true);
     expect(result.edges.length).toBeGreaterThan(0);
   });
 
@@ -76,7 +78,15 @@ describe('contextQuery', () => {
       if (node.seed) {
         expect(node.distance).toBe(0);
         expect(node.channels.length).toBeGreaterThan(0);
-        expect(node.channels.every((c) => c === 'lexical' || c === 'semantic')).toBe(true);
+        expect(
+          node.channels.every(
+            (c) =>
+              c === 'lexical' ||
+              c === 'lexical-prf' ||
+              c === 'semantic' ||
+              c === 'semantic-multivec',
+          ),
+        ).toBe(true);
       } else {
         expect(node.distance).toBeGreaterThanOrEqual(1);
         expect(node.channels).toEqual(['graph']);

@@ -85,9 +85,11 @@ export function createServer(repoRoot: string, opts: ServeOptions = {}): McpServ
       title: 'Business context retrieval',
       description:
         'Retrieve the subgraph relevant to a business question. Multi-stage hybrid retrieval: ' +
-        'seeds by RRF fusion of full-text and semantic-embedding channels, MMR-diversified, then ' +
-        'multi-hop graph expansion (spreading activation blended with personalized PageRank, ' +
-        'weighted by edge confidence and type). Start here when you do not know node ids. ' +
+        'seeds by weighted RRF fusion of four channels (BM25F fielded full-text, RM3 pseudo-' +
+        'relevance query expansion, semantic embedding k-NN, and ColBERT-style late-interaction ' +
+        'MaxSim over per-facet vectors), MMR-diversified, then multi-hop graph expansion ' +
+        '(spreading activation blended with personalized PageRank, weighted by edge confidence ' +
+        'and type). Start here when you do not know node ids. ' +
         'Example: { "query": "pago anticipado clientes nuevos" }. ' +
         'Deepen with untacit_explore / untacit_evidence; connect concepts with untacit_paths.',
       inputSchema: {

@@ -6,6 +6,7 @@ import {
   kBestPaths,
   mmrSelect,
   personalizedPageRank,
+  spectralEmbedding,
   spreadingActivation,
 } from './index.js';
 import type { TraversalEdge } from './index.js';
@@ -180,5 +181,51 @@ describe('mmrSelect', () => {
     ];
     const picked = mmrSelect(items, 3, 1, (i) => i.rel, () => 1);
     expect(picked.map((i) => i.id)).toEqual(['b', 'c', 'a']);
+  });
+});
+
+describe('spectralEmbedding', () => {
+  const adj = buildAdjacency(EDGES);
+
+  function cosine(a: number[], b: number[]): number {
+    let dot = 0;
+    let na = 0;
+    let nb = 0;
+    for (let i = 0; i < a.length; i++) {
+      dot += a[i]! * b[i]!;
+      na += a[i]! * a[i]!;
+      nb += b[i]! * b[i]!;
+    }
+    return na === 0 || nb === 0 ? 0 : dot / Math.sqrt(na * nb);
+  }
+
+  it('is deterministic across runs', () => {
+    const one = spectralEmbedding(adj, { dims: 4 });
+    const two = spectralEmbedding(adj, { dims: 4 });
+    expect([...one.keys()]).toEqual([...two.keys()]);
+    for (const [id, vec] of one) expect(two.get(id)).toEqual(vec);
+  });
+
+  it('places structurally equivalent nodes closer than unrelated ones', () => {
+    const spectral = spectralEmbedding(adj, { dims: 4 });
+    // rule-a and rule-b share BOTH neighbors (process-p via VALIDATES, sys
+    // via IMPLEMENTED_IN): same graph position, high cosine. event-e sits in
+    // a different part of the chain.
+    const twins = cosine(spectral.get('rule-a')!, spectral.get('rule-b')!);
+    const distant = cosine(spectral.get('rule-a')!, spectral.get('event-e')!);
+    expect(twins).toBeGreaterThan(distant);
+    expect(twins).toBeGreaterThan(0.5);
+  });
+
+  it('only embeds nodes present in the adjacency and caps dims at node count', () => {
+    const spectral = spectralEmbedding(adj, { dims: 64 });
+    expect(spectral.has('unrelated-node')).toBe(false);
+    for (const vec of spectral.values()) {
+      expect(vec.length).toBeLessThanOrEqual(adj.size);
+    }
+  });
+
+  it('returns empty for an empty graph', () => {
+    expect(spectralEmbedding(new Map()).size).toBe(0);
   });
 });

@@ -19,6 +19,7 @@
  *     retrieval seeds before spending the expansion budget on them.
  */
 
+import { createHash } from 'node:crypto';
 import type { EdgeType } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -411,6 +412,116 @@ export function kBestPaths(
     edges: p.edges,
     strength: round4(Math.exp(-p.cost)),
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Spectral structural embeddings
+// ---------------------------------------------------------------------------
+
+export interface SpectralOptions {
+  /** Embedding dimensions = leading eigenvectors extracted (default 16). */
+  dims?: number;
+  /** Power iterations per eigenvector (default 30). */
+  iterations?: number;
+}
+
+/** Deterministic pseudo-random in [-0.5, 0.5) from a string key (no RNG state). */
+function hashUnit(key: string): number {
+  const digest = createHash('sha1').update(key).digest();
+  return digest.readUInt32BE(0) / 0x100000000 - 0.5;
+}
+
+/**
+ * Structural node embeddings: adjacency spectral embedding of the
+ * symmetrically normalized weighted adjacency (D^-1/2 · A · D^-1/2),
+ * computed with power iteration + Gram-Schmidt deflation. Each node gets a
+ * vector whose d-th component is its coordinate on the d-th leading
+ * eigenvector, scaled by sqrt(|eigenvalue|); cosine between two vectors
+ * measures similarity of *graph position* — two rules validating the same
+ * processes land close even with disjoint wording. Everything is
+ * deterministic: initialization is hashed from node ids, so repeated runs
+ * (and tests) get identical vectors.
+ *
+ * Cost is O(dims × iterations × E) — the deliberate "more compute, better
+ * signal" trade of docs/03 §6.1; at v1 scale (~50k edges, 16 dims) this is
+ * a few tens of milliseconds. Isolated nodes have no adjacency row and get
+ * no vector.
+ */
+export function spectralEmbedding(
+  adjacency: Map<string, AdjacentHop[]>,
+  opts: SpectralOptions = {},
+): Map<string, number[]> {
+  const ids = [...adjacency.keys()].sort();
+  const n = ids.length;
+  if (n === 0) return new Map();
+  const dims = Math.min(opts.dims ?? 16, n);
+  const iterations = opts.iterations ?? 30;
+  const indexOf = new Map(ids.map((id, i) => [id, i]));
+
+  // Normalized adjacency rows: neighbors as (index, weight / sqrt(d_i · d_j)).
+  const degree = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    for (const hop of adjacency.get(ids[i]!) ?? []) degree[i] += hop.weight;
+  }
+  const rows: { j: number; w: number }[][] = ids.map((id, i) => {
+    const out: { j: number; w: number }[] = [];
+    for (const hop of adjacency.get(id) ?? []) {
+      const j = indexOf.get(hop.other);
+      if (j === undefined) continue; // dangling target with no own adjacency row
+      const denom = Math.sqrt(Math.max(degree[i]!, 1e-12) * Math.max(degree[j]!, 1e-12));
+      out.push({ j, w: hop.weight / denom });
+    }
+    return out;
+  });
+
+  const multiply = (v: Float64Array): Float64Array => {
+    const out = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      for (const { j, w } of rows[i]!) out[i] += w * v[j]!;
+    }
+    return out;
+  };
+  const dot = (a: Float64Array, b: Float64Array): number => {
+    let sum = 0;
+    for (let i = 0; i < n; i++) sum += a[i]! * b[i]!;
+    return sum;
+  };
+  const normalize = (v: Float64Array): number => {
+    const norm = Math.sqrt(dot(v, v));
+    if (norm > 1e-12) for (let i = 0; i < n; i++) v[i]! /= norm;
+    return norm;
+  };
+  const deflate = (v: Float64Array, basis: Float64Array[]): void => {
+    for (const u of basis) {
+      const proj = dot(v, u);
+      for (let i = 0; i < n; i++) v[i]! -= proj * u[i]!;
+    }
+  };
+
+  const eigenvectors: Float64Array[] = [];
+  const eigenvalues: number[] = [];
+  for (let d = 0; d < dims; d++) {
+    let v: Float64Array = new Float64Array(n);
+    for (let i = 0; i < n; i++) v[i] = hashUnit(`${ids[i]}|${d}`);
+    deflate(v, eigenvectors);
+    if (normalize(v) <= 1e-12) break;
+    for (let it = 0; it < iterations; it++) {
+      const next = multiply(v);
+      deflate(next, eigenvectors);
+      if (normalize(next) <= 1e-12) break; // spectrum exhausted
+      v = next;
+    }
+    const lambda = dot(v, multiply(v));
+    eigenvectors.push(v);
+    eigenvalues.push(lambda);
+  }
+
+  const result = new Map<string, number[]>();
+  for (let i = 0; i < n; i++) {
+    const vec = eigenvectors.map((v, d) => v[i]! * Math.sqrt(Math.abs(eigenvalues[d]!)));
+    result.set(ids[i]!, vec);
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
