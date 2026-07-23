@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,6 +35,20 @@ describe('untacit CLI (Fase 0 exit criteria)', () => {
   it('init creates a graph repo', () => {
     const out = cli(['init', repo]);
     expect(out).toContain('initialized');
+    // Hermetic tests: pin embeddings off so imports never resolve 'auto' to
+    // the local multilingual model (a download at test time, and semantic
+    // fuzzy matching that would change the expected resolution counts).
+    const configPath = join(repo, 'untacit.config.json');
+    const config = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+    writeFileSync(
+      configPath,
+      `${JSON.stringify({ ...config, embeddings: { provider: 'none' } }, null, 2)}\n`,
+      'utf8',
+    );
+    execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@localhost', 'commit', '-am', 'test: pin embeddings off'], {
+      cwd: repo,
+      encoding: 'utf8',
+    });
   });
 
   it('import materializes a batch and commits a run', () => {
