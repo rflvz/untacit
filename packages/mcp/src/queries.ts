@@ -22,256 +22,33 @@ import {
   edgeWeight,
   gitLastCommits,
   kBestPaths,
-  mmrSelect,
   nameSimilarity,
-  personalizedPageRank,
   spectralEmbedding,
-  spreadingActivation,
 } from '@untacit/core';
 
 // ---------------------------------------------------------------------------
 // untacit_context — multi-stage hybrid retrieval
 // ---------------------------------------------------------------------------
 
-/** Which retrieval stage(s) surfaced a node. */
-export type RetrievalChannel =
-  | 'lexical'
-  | 'lexical-prf'
-  | 'semantic'
-  | 'semantic-multivec'
-  | 'graph';
-
-export interface ContextNode extends SearchResult {
-  seed: boolean;
-  /** Hops from the closest seed (0 for seeds themselves). */
-  distance: number;
-  channels: RetrievalChannel[];
-}
-
-export interface ContextResult {
-  nodes: ContextNode[];
-  edges: EdgeRow[];
-  truncated: boolean;
-}
-
-export interface ContextOptions {
-  nodeTypes?: NodeType[];
-  limit?: number;
-  /** Structural expansion hops from the seeds (default 2, docs/03 §6.1). */
-  depth?: number;
-  embeddings?: EmbeddingProvider | null;
-}
-
-/** RRF constant (standard 60): flattens the head so channels vote, not dominate. */
-const RRF_K = 60;
-/** MMR relevance/diversity trade-off for seed selection. */
-const MMR_LAMBDA = 0.7;
-/** Blend of the two graph signals for expansion ranking. */
-const ACTIVATION_BLEND = 0.65;
-
-/** Token set of a normalized name — the embedding-free seed-similarity fallback. */
-function nameTokens(text: string): Set<string> {
-  return new Set(
-    text
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .split(/[^a-z0-9]+/)
-      .filter((t) => t.length > 0),
-  );
-}
-
-function jaccard(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 || b.size === 0) return 0;
-  let inter = 0;
-  for (const t of a) if (b.has(t)) inter += 1;
-  return inter / (a.size + b.size - inter);
-}
-
-/**
- * Hybrid multi-stage retrieval (docs/03 §6.1):
- *
- *   1. Seeding — weighted RRF fusion of four channels: lexical (BM25F,
- *      fielded weights), lexical-prf (RM3 pseudo-relevance query expansion,
- *      down-weighted — recall-oriented), semantic (mean-pooled embedding
- *      k-NN) and semantic-multivec (ColBERT-style late-interaction MaxSim
- *      over per-facet vectors). Each channel contributes a pool deeper than
- *      the final cut. Without a provider (or empty vector caches) the
- *      semantic channels drop out and seeding degrades to lexical + PRF.
- *      Both vector caches are refreshed incrementally before seeding, so
- *      post-pull staleness never serves stale vectors.
- *   2. Diversification — MMR over the fused pool, so near-duplicate seeds
- *      (same concept found under two names) don't burn the budget that
- *      distinct sub-topics of the question deserve.
- *   3. Expansion — spreading activation from the seeds over the whole graph:
- *      multi-hop (default 2), each hop weighted by edge confidence × edge-type
- *      weight, decayed by depth and hub-damped, blended with personalized
- *      PageRank (random walk with restart at the seeds) so both "strong short
- *      chain" and "well-connected near many seeds" count.
- *   4. Budget trim — expansion nodes ranked by blended graph score, cut to
- *      3× limit; edges reported are the induced subgraph over the kept nodes.
- */
-export async function contextQuery(
-  index: GraphIndex,
-  query: string,
-  opts: ContextOptions = {},
-): Promise<ContextResult> {
-  const limit = Math.min(opts.limit ?? 15, 50);
-  const depth = Math.min(Math.max(opts.depth ?? 2, 1), 3);
-  const provider = opts.embeddings ?? null;
-  if (provider !== null) {
-    await index.updateEmbeddings(provider);
-    await index.updateFacetEmbeddings(provider);
-  }
-
-  // --- Stage 1: multi-channel seeding, weighted-RRF fused, channel
-  // provenance kept. Channel weights mirror GraphIndex.hybridSearch: PRF is
-  // recall-oriented (down-weighted), late interaction is precision-oriented.
-  const pool = Math.max(limit * 3, 30);
-  const searchOpts = { types: opts.nodeTypes, limit: pool };
-  const channelRuns: [RetrievalChannel, number, SearchResult[]][] = [
-    ['lexical', 1.0, index.search(query, searchOpts)],
-    ['lexical-prf', 0.5, index.prfSearch(query, searchOpts)],
-  ];
-  if (provider !== null) {
-    channelRuns.push(
-      ['semantic', 0.9, await index.semanticSearch(query, provider, searchOpts)],
-      ['semantic-multivec', 1.0, await index.lateInteractionSearch(query, provider, searchOpts)],
-    );
-  }
-
-  interface FusedSeed extends SearchResult {
-    fused: number;
-    channels: RetrievalChannel[];
-  }
-  const fused = new Map<string, FusedSeed>();
-  for (const [channel, weight, run] of channelRuns) {
-    run.forEach((result, rank) => {
-      const contribution = weight / (RRF_K + rank + 1);
-      const entry = fused.get(result.id);
-      if (entry === undefined) {
-        fused.set(result.id, { ...result, fused: contribution, channels: [channel] });
-      } else {
-        entry.fused += contribution;
-        entry.channels.push(channel);
-      }
-    });
-  }
-  const fusedPool = [...fused.values()].sort(
-    (a, b) => b.fused - a.fused || a.id.localeCompare(b.id),
-  );
-  if (fusedPool.length === 0) return { nodes: [], edges: [], truncated: false };
-
-  // --- Stage 2: MMR diversification of the seed set. Similarity between two
-  // candidates is embedding cosine when both vectors exist, else token
-  // Jaccard over names. Relevance is the fused score normalized to [0, 1].
-  const vectors = provider !== null ? index.nodeVectors(provider.name) : new Map<string, number[]>();
-  const tokens = new Map(fusedPool.map((s) => [s.id, nameTokens(s.name)]));
-  const maxFused = fusedPool[0]!.fused;
-  const seedSimilarity = (a: FusedSeed, b: FusedSeed): number => {
-    const va = vectors.get(a.id);
-    const vb = vectors.get(b.id);
-    if (va !== undefined && vb !== undefined && va.length === vb.length) {
-      return cosineSimilarity(va, vb);
-    }
-    return jaccard(tokens.get(a.id)!, tokens.get(b.id)!);
-  };
-  const seeds = mmrSelect(
-    fusedPool,
-    limit,
-    MMR_LAMBDA,
-    (s) => s.fused / maxFused,
-    seedSimilarity,
-  );
-
-  // --- Stage 3: graph expansion — spreading activation blended with PPR.
-  const adjacency = buildAdjacency(index.allEdges());
-  const seedScores = new Map(seeds.map((s) => [s.id, s.fused / maxFused]));
-  const activation = spreadingActivation(adjacency, seedScores, { maxDepth: depth });
-  const ppr = personalizedPageRank(adjacency, seedScores);
-
-  const seedIds = new Set(seedScores.keys());
-  let maxActivation = 0;
-  let maxPpr = 0;
-  for (const [id, score] of activation.scores) {
-    if (!seedIds.has(id) && score > maxActivation) maxActivation = score;
-  }
-  for (const [id, score] of ppr) {
-    if (!seedIds.has(id) && score > maxPpr) maxPpr = score;
-  }
-  const graphScore = (id: string): number => {
-    const act = maxActivation > 0 ? (activation.scores.get(id) ?? 0) / maxActivation : 0;
-    const walk = maxPpr > 0 ? (ppr.get(id) ?? 0) / maxPpr : 0;
-    return ACTIVATION_BLEND * act + (1 - ACTIVATION_BLEND) * walk;
-  };
-
-  // --- Stage 4: budget trim + induced subgraph.
-  const budget = limit * 3;
-  const nodes = new Map<string, ContextNode>();
-  for (const seed of seeds) {
-    nodes.set(seed.id, {
-      id: seed.id,
-      type: seed.type,
-      name: seed.name,
-      summary: seed.summary,
-      score: round4(seed.fused),
-      seed: true,
-      distance: 0,
-      channels: seed.channels,
-    });
-  }
-
-  const expansion = [...activation.scores.keys()]
-    .filter((id) => !nodes.has(id))
-    .map((id) => ({ id, score: graphScore(id) }))
-    .filter((c) => c.score > 0)
-    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
-
-  let truncated = false;
-  for (const candidate of expansion) {
-    if (nodes.size >= budget) {
-      truncated = true;
-      break;
-    }
-    const summary = index.nodeSummary(candidate.id);
-    if (summary === undefined) continue; // dangling edge target
-    nodes.set(candidate.id, {
-      ...summary,
-      score: round4(candidate.score),
-      seed: false,
-      distance: activation.distance.get(candidate.id) ?? depth,
-      channels: ['graph'],
-    });
-  }
-
-  // Edges of the induced subgraph over the kept nodes. Trim order: edges
-  // touching a seed first (they explain the retrieved context directly),
-  // then by hop distance of the closest endpoint, then by weight — so a
-  // low-weight IMPLEMENTED_IN on a seed survives the cut ahead of a strong
-  // edge deep in the expansion.
-  const edges: EdgeRow[] = [];
-  const traversed = [...activation.edges.values()] as EdgeRow[];
-  const edgeDistance = (e: EdgeRow): number =>
-    Math.min(
-      activation.distance.get(e.source) ?? depth,
-      activation.distance.get(e.targetId) ?? depth,
-    );
-  traversed.sort(
-    (a, b) =>
-      edgeDistance(a) - edgeDistance(b) ||
-      edgeWeight(b) - edgeWeight(a) ||
-      a.id.localeCompare(b.id),
-  );
-  for (const edge of traversed) {
-    if (edges.length >= budget) {
-      truncated = true;
-      break;
-    }
-    if (nodes.has(edge.source) && nodes.has(edge.targetId)) edges.push(edge);
-  }
-
-  return { nodes: [...nodes.values()], edges, truncated };
-}
+// The pipeline lives in @untacit/core (retrieval/context.ts) so the desktop
+// sidecar and the MCP layer share one implementation; re-exported here to
+// keep the historical @untacit/mcp surface stable.
+export {
+  contextQuery,
+  planRetrieval,
+  DEFAULT_CHANNEL_WEIGHTS,
+  SEED_CHANNELS,
+} from '@untacit/core';
+export type {
+  ContextNode,
+  ContextOptions,
+  ContextResult,
+  PlannedChannel,
+  RetrievalChannel,
+  RetrievalPlan,
+  SeedChannel,
+  SkippedChannel,
+} from '@untacit/core';
 
 // ---------------------------------------------------------------------------
 // untacit_explore

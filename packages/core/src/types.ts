@@ -395,6 +395,102 @@ export interface EmbeddingsConfig {
   model?: string;
 }
 
+/** Per-channel retrieval settings (untacit.config.json → retrieval.channels). */
+export interface RetrievalChannelSettings {
+  /** Include the channel in the seeding fusion (default true). */
+  enabled?: boolean;
+  /** RRF fusion weight override (each channel has a documented default). */
+  weight?: number;
+}
+
+export interface RetrievalPrfSettings extends RetrievalChannelSettings {
+  /** Feedback documents mined for expansion terms (default 8). */
+  feedback_docs?: number;
+  /** Expansion terms appended to the query (default 5). */
+  expansion_terms?: number;
+}
+
+/** Graph-expansion stage settings (spreading activation + PPR blend). */
+export interface RetrievalExpansionSettings {
+  /** Hops from the seeds, 1–3 (default 2). */
+  depth?: number;
+  /** Multiplicative decay per hop (default 0.6). */
+  decay?: number;
+  /** Hub damping exponent (default 0.3). */
+  fanout_penalty?: number;
+  /** PPR restart probability α (default 0.15). */
+  restart?: number;
+  /** Blend of activation vs PPR in the expansion ranking (default 0.65). */
+  activation_blend?: number;
+}
+
+/**
+ * Multi-stage retrieval configuration (untacit.config.json → retrieval).
+ *
+ * mode 'manual' (default) runs exactly the channels enabled below; mode
+ * 'auto' lets the retrieval engine pick channels and weights per query from
+ * the query's shape (id-like lookup, short keywords, natural-language
+ * question, non-Latin script) and from provider availability — the per-channel
+ * `enabled: false` switches are still respected as hard vetoes.
+ */
+export interface RetrievalConfig {
+  mode?: 'auto' | 'manual';
+  channels?: {
+    lexical?: RetrievalChannelSettings;
+    lexical_prf?: RetrievalPrfSettings;
+    semantic?: RetrievalChannelSettings;
+    semantic_multivec?: RetrievalChannelSettings;
+  };
+  expansion?: RetrievalExpansionSettings;
+  /** MMR relevance/diversity trade-off for seed selection (default 0.7). */
+  mmr_lambda?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Retrieval plan (resolved per query by planRetrieval, retrieval/context.ts)
+// ---------------------------------------------------------------------------
+
+/** Which retrieval stage(s) surfaced a node. */
+export type RetrievalChannel =
+  | 'lexical'
+  | 'lexical-prf'
+  | 'semantic'
+  | 'semantic-multivec'
+  | 'graph';
+
+/** Seed channels the planner decides over (the graph channel always runs). */
+export type SeedChannel = Exclude<RetrievalChannel, 'graph'>;
+
+export interface PlannedChannel {
+  channel: SeedChannel;
+  weight: number;
+  /** Human-readable reason this channel runs at this weight (settings UI). */
+  reason: string;
+}
+
+export interface SkippedChannel {
+  channel: SeedChannel;
+  reason: string;
+}
+
+export interface RetrievalPlan {
+  /** 'manual' honors the config switches; 'auto' decided per query. */
+  mode: 'auto' | 'manual';
+  /** How 'auto' classified the query (also set in manual mode, informative). */
+  queryKind: 'id-lookup' | 'keywords' | 'question';
+  channels: PlannedChannel[];
+  skipped: SkippedChannel[];
+  expansion: {
+    depth: number;
+    decay: number;
+    fanoutPenalty: number;
+    restart: number;
+    activationBlend: number;
+  };
+  mmrLambda: number;
+  prf: { feedbackDocs: number; expansionTerms: number };
+}
+
 export interface UntacitConfig {
   /** Content language of the graph (e.g. "es"). Schema identifiers are always English. */
   language: string;
@@ -411,4 +507,5 @@ export interface UntacitConfig {
     resolver_gray: number;
   };
   embeddings?: EmbeddingsConfig;
+  retrieval?: RetrievalConfig;
 }
