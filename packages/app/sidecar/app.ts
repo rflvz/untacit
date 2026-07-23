@@ -27,9 +27,14 @@ import type {
   NodeType,
   OpenRequest,
   OpenResponse,
+  RetrievalTestRequest,
+  RetrievalTestResponse,
   ReviewResponse,
   RunsResponse,
   SearchResponse,
+  SettingsResponse,
+  SettingsUpdateRequest,
+  SettingsUpdateResponse,
   SourceType,
 } from '../src/api-types.js';
 import type { LlmClient } from '@untacit/extractors';
@@ -100,6 +105,19 @@ export function createApp(opts: SidecarOptions): Hono {
       index.reindexIfStale();
     }
     return index;
+  };
+
+  // Embedding provider for the retrieval test surface, resolved lazily from
+  // untacit.config.json ('auto' without the local model → null). The promise
+  // is cached — loading the multilingual model costs seconds on first use —
+  // and reset whenever the settings change the embeddings section.
+  type Provider = Awaited<ReturnType<CoreModule['createEmbeddingProvider']>>;
+  let providerPromise: Promise<Provider> | undefined;
+  const getProvider = (core: CoreModule): Promise<Provider> => {
+    providerPromise ??= core
+      .createEmbeddingProvider(core.loadConfig(repoRoot).embeddings)
+      .catch(() => null);
+    return providerPromise;
   };
 
   app.use('/api/*', cors());
@@ -455,6 +473,104 @@ export function createApp(opts: SidecarOptions): Hono {
         status: edge.status as 'active' | 'deprecated',
         resolution,
         commit,
+      };
+      return c.json(body);
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // GET /api/settings — untacit.config.json + embedding-model status.
+  // -------------------------------------------------------------------------
+  app.get(
+    '/api/settings',
+    route(async (c, core) => {
+      const config = core.loadConfig(repoRoot);
+      const transformersInstalled = await core.transformersAvailable();
+      // Report the loaded provider only when the cache is already warm: the
+      // settings view must not force a multi-second model load on open.
+      let activeProvider: string | null = null;
+      if (providerPromise !== undefined) {
+        activeProvider = (await providerPromise)?.name ?? null;
+      }
+      const body: SettingsResponse = {
+        config,
+        embeddings: {
+          transformersInstalled,
+          activeProvider,
+          defaultModel: core.DEFAULT_EMBEDDING_MODEL,
+        },
+      };
+      return c.json(body);
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // PUT /api/settings — persist embeddings/retrieval into untacit.config.json
+  // and commit. Sections are replaced wholesale (the UI sends full objects).
+  // -------------------------------------------------------------------------
+  app.put(
+    '/api/settings',
+    route(async (c, core) => {
+      const payload = (await c.req.json().catch(() => undefined)) as
+        | SettingsUpdateRequest
+        | undefined;
+      if (payload === undefined || (payload.embeddings === undefined && payload.retrieval === undefined)) {
+        return c.json(
+          { error: 'body must set "embeddings" and/or "retrieval"' } satisfies ApiError,
+          400,
+        );
+      }
+      const config = core.loadConfig(repoRoot);
+      if (payload.embeddings !== undefined) {
+        config.embeddings = payload.embeddings;
+        providerPromise = undefined; // reload the provider with the new choice
+      }
+      if (payload.retrieval !== undefined) config.retrieval = payload.retrieval;
+      core.saveConfig(repoRoot, config);
+      let commit: string | null = null;
+      try {
+        commit = core.isGitRepo(repoRoot)
+          ? core.gitCommitAll(repoRoot, 'untacit: update settings')
+          : null;
+      } catch {
+        commit = null; // nothing changed (idempotent save) or no git identity
+      }
+      const body: SettingsUpdateResponse = { ok: true, config, commit };
+      return c.json(body);
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /api/retrieval/test — run the full hybrid pipeline once and return
+  // seeds + expansion with per-channel provenance and the resolved plan, so
+  // the settings view can show what a query would retrieve under the current
+  // (or an unsaved) configuration.
+  // -------------------------------------------------------------------------
+  app.post(
+    '/api/retrieval/test',
+    route(async (c, core) => {
+      const payload = (await c.req.json().catch(() => undefined)) as
+        | RetrievalTestRequest
+        | undefined;
+      if (payload === undefined || typeof payload.query !== 'string' || payload.query.trim() === '') {
+        return c.json({ error: 'body must be { query, limit?, retrieval? }' } satisfies ApiError, 400);
+      }
+      const config = core.loadConfig(repoRoot);
+      const retrieval = payload.retrieval ?? config.retrieval;
+      const provider = await getProvider(core);
+      const started = Date.now();
+      const result = await core.contextQuery(getIndex(core), payload.query, {
+        limit: payload.limit,
+        embeddings: provider,
+        retrieval,
+      });
+      const body: RetrievalTestResponse = {
+        nodes: result.nodes,
+        edges: result.edges as ApiEdge[],
+        truncated: result.truncated,
+        plan: result.plan,
+        provider: provider?.name ?? null,
+        tookMs: Date.now() - started,
       };
       return c.json(body);
     }),

@@ -12,9 +12,13 @@ import type {
   MergeActionResponse,
   NodeDetailResponse,
   OpenResponse,
+  RetrievalTestResponse,
   ReviewResponse,
   RunsResponse,
   SearchResponse,
+  SettingsResponse,
+  SettingsUpdateRequest,
+  SettingsUpdateResponse,
   StatsResponse,
 } from '../src/api-types.js';
 import { createApp } from './app.js';
@@ -28,8 +32,18 @@ async function getJson<T>(app: Hono, path: string, expectedStatus = 200): Promis
 }
 
 async function postJson<T>(app: Hono, path: string, body: unknown = {}, expectedStatus = 200): Promise<T> {
+  return postLike(app, path, 'POST', body, expectedStatus);
+}
+
+async function postLike<T>(
+  app: Hono,
+  path: string,
+  method: 'POST' | 'PUT',
+  body: unknown = {},
+  expectedStatus = 200,
+): Promise<T> {
   const res = await app.request(path, {
-    method: 'POST',
+    method,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
@@ -466,5 +480,75 @@ describe('sidecar conflict resolution (write + commit)', () => {
       409,
     );
     expect(again.error).toContain('already');
+  });
+});
+
+describe('sidecar settings & retrieval test (Ajustes)', () => {
+  let repo: string;
+  let app: Hono;
+
+  beforeAll(() => {
+    repo = createFixtureRepo();
+    app = createApp({ repoRoot: repo });
+  });
+
+  it('GET /api/settings returns the config and embedding status without loading the model', async () => {
+    const body = await getJson<SettingsResponse>(app, '/api/settings');
+    expect(body.config.language).toBeTypeOf('string');
+    expect(body.embeddings.transformersInstalled).toBe(true); // workspace root dependency
+    expect(body.embeddings.activeProvider).toBeNull(); // lazy: nothing loaded yet
+    expect(body.embeddings.defaultModel).toContain('e5');
+  });
+
+  it('PUT /api/settings persists embeddings + retrieval and commits', async () => {
+    const update: SettingsUpdateRequest = {
+      embeddings: { provider: 'hash' },
+      retrieval: { mode: 'auto', channels: { lexical_prf: { enabled: false } } },
+    };
+    const body = await postLike<SettingsUpdateResponse>(app, '/api/settings', 'PUT', update);
+    expect(body.ok).toBe(true);
+    expect(body.config.embeddings?.provider).toBe('hash');
+    expect(body.config.retrieval?.mode).toBe('auto');
+    expect(body.commit).toBeTypeOf('string');
+
+    // Round-trips through untacit.config.json.
+    const readBack = await getJson<SettingsResponse>(app, '/api/settings');
+    expect(readBack.config.retrieval?.channels?.lexical_prf?.enabled).toBe(false);
+
+    // Idempotent save: no new commit when nothing changes.
+    const again = await postLike<SettingsUpdateResponse>(app, '/api/settings', 'PUT', update);
+    expect(again.commit).toBeNull();
+  });
+
+  it('PUT /api/settings rejects an empty payload', async () => {
+    const body = await postLike<ApiError>(app, '/api/settings', 'PUT', {}, 400);
+    expect(body.error).toContain('embeddings');
+  });
+
+  it('POST /api/retrieval/test runs the pipeline and reports the plan', async () => {
+    // Saved config from the previous test: provider hash, mode auto, PRF veto.
+    const body = await postJson<RetrievalTestResponse>(app, '/api/retrieval/test', {
+      query: 'prepago',
+    });
+    expect(body.plan.mode).toBe('auto');
+    expect(body.plan.queryKind).toBe('keywords');
+    expect(body.plan.channels.map((c) => c.channel)).toContain('lexical');
+    expect(body.plan.channels.map((c) => c.channel)).not.toContain('lexical-prf');
+    expect(body.provider).toContain('hash');
+    expect(body.nodes.length).toBeGreaterThan(0);
+    expect(body.tookMs).toBeGreaterThanOrEqual(0);
+
+    // An unsaved override wins over the stored config.
+    const manual = await postJson<RetrievalTestResponse>(app, '/api/retrieval/test', {
+      query: 'prepago',
+      retrieval: { mode: 'manual' },
+    });
+    expect(manual.plan.mode).toBe('manual');
+    expect(manual.plan.channels.map((c) => c.channel)).toContain('lexical-prf');
+  });
+
+  it('POST /api/retrieval/test validates the query', async () => {
+    const body = await postJson<ApiError>(app, '/api/retrieval/test', { query: '' }, 400);
+    expect(body.error).toContain('query');
   });
 });

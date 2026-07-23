@@ -2,6 +2,8 @@ import { MultiDirectedGraph } from 'graphology';
 import forceAtlas2 from 'graphology-layout-forceatlas2';
 import { useEffect, useRef, useState } from 'react';
 import Sigma from 'sigma';
+import type { Settings } from 'sigma/settings';
+import type { NodeDisplayData, PartialButFor } from 'sigma/types';
 
 import { api } from '../api.js';
 import type { GraphResponse, NodeType, SearchResult } from '../api-types.js';
@@ -14,6 +16,71 @@ import {
   NODE_TYPE_COLORS,
 } from '../ontology.js';
 import { DetailPanel } from './DetailPanel.js';
+
+/**
+ * Themed replacement for sigma's default hover renderer. The default draws a
+ * WHITE pill behind the label and then renders the label with
+ * settings.labelColor — #E8EDF6 here — so hovering a node showed a white box
+ * with near-white, unreadable text. This draws the untacit glass pill (dark
+ * background, subtle border) with the label plus the node-type tag.
+ */
+function drawNodeHover(
+  context: CanvasRenderingContext2D,
+  data: PartialButFor<NodeDisplayData, 'x' | 'y' | 'size' | 'label' | 'color'>,
+  settings: Settings,
+): void {
+  if (typeof data.label !== 'string' || data.label === '') return;
+  const size = settings.labelSize;
+  const font = settings.labelFont;
+  const weight = settings.labelWeight;
+  const nodeType = (data as { nodeType?: string }).nodeType ?? '';
+
+  context.font = `${weight} ${size}px ${font}`;
+  const labelWidth = context.measureText(data.label).width;
+  const typeFont = `600 ${size - 2.5}px "IBM Plex Mono", monospace`;
+  context.font = typeFont;
+  const typeWidth = nodeType === '' ? 0 : context.measureText(nodeType.toUpperCase()).width + 8;
+
+  const padX = 8;
+  const padY = 5;
+  const boxWidth = Math.round(labelWidth + typeWidth + 2 * padX);
+  const boxHeight = Math.round(size + 2 * padY);
+  const boxX = data.x + data.size + 6;
+  const boxY = data.y - boxHeight / 2;
+  const radius = 7;
+
+  context.save();
+  context.shadowOffsetX = 0;
+  context.shadowOffsetY = 6;
+  context.shadowBlur = 18;
+  context.shadowColor = 'rgba(2, 6, 18, 0.6)';
+  context.beginPath();
+  context.roundRect(boxX, boxY, boxWidth, boxHeight, radius);
+  context.fillStyle = 'rgba(13, 20, 38, 0.94)';
+  context.fill();
+  context.shadowColor = 'transparent';
+  context.lineWidth = 1;
+  context.strokeStyle = 'rgba(163, 186, 242, 0.38)';
+  context.stroke();
+
+  // Halo ring around the hovered node, in its own color.
+  context.beginPath();
+  context.arc(data.x, data.y, data.size + 2.5, 0, Math.PI * 2);
+  context.strokeStyle = data.color ?? '#E8EDF6';
+  context.lineWidth = 1.5;
+  context.stroke();
+
+  context.textBaseline = 'middle';
+  context.font = `${weight} ${size}px ${font}`;
+  context.fillStyle = '#E8EDF6';
+  context.fillText(data.label, boxX + padX, data.y + 1);
+  if (nodeType !== '') {
+    context.font = typeFont;
+    context.fillStyle = NODE_TYPE_COLORS[nodeType as NodeType] ?? '#9AA7C7';
+    context.fillText(nodeType.toUpperCase(), boxX + padX + labelWidth + 8, data.y + 1);
+  }
+  context.restore();
+}
 
 export function GraphView() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -76,7 +143,8 @@ export function GraphView() {
     }
 
     sigmaRef.current?.kill();
-    const renderer = new Sigma(graph, containerRef.current, {
+    const container = containerRef.current;
+    const renderer = new Sigma(graph, container, {
       labelColor: { color: '#E8EDF6' },
       labelFont: 'Archivo, system-ui, sans-serif',
       labelWeight: '500',
@@ -85,9 +153,16 @@ export function GraphView() {
       defaultEdgeType: 'arrow',
       minCameraRatio: 0.05,
       maxCameraRatio: 4,
+      defaultDrawNodeHover: drawNodeHover,
     });
     renderer.on('clickNode', ({ node }) => setSelected(node));
     renderer.on('clickStage', () => setSelected(null));
+    renderer.on('enterNode', () => {
+      container.style.cursor = 'pointer';
+    });
+    renderer.on('leaveNode', () => {
+      container.style.cursor = 'default';
+    });
     sigmaRef.current = renderer;
 
     return () => {

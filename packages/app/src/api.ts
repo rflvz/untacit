@@ -25,9 +25,15 @@ import type {
   NodeDetailResponse,
   NodeType,
   OpenResponse,
+  RetrievalConfig,
+  RetrievalTestRequest,
+  RetrievalTestResponse,
   ReviewResponse,
   RunsResponse,
   SearchResponse,
+  SettingsResponse,
+  SettingsUpdateRequest,
+  SettingsUpdateResponse,
   StatsResponse,
 } from './api-types.js';
 
@@ -101,6 +107,21 @@ export const api = {
   /** Open an evidence's source file locally (docs/04 Fase 2: locator clicable). */
   open: (evidence: Pick<Evidence, 'source_type' | 'locator'>): Promise<OpenResponse> =>
     post('/api/open', { source_type: evidence.source_type, locator: evidence.locator }),
+
+  // ---- Settings & retrieval (Ajustes) ----
+  settings: (): Promise<SettingsResponse> => request('/api/settings'),
+  saveSettings: (update: SettingsUpdateRequest): Promise<SettingsUpdateResponse> =>
+    request('/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(update),
+    }),
+  retrievalTest: (
+    query: string,
+    retrieval?: RetrievalConfig,
+    limit?: number,
+  ): Promise<RetrievalTestResponse> =>
+    post('/api/retrieval/test', { query, retrieval, limit } satisfies RetrievalTestRequest),
 
   // ---- Agentic interviews (Fase 4) ----
   interviewGaps: (): Promise<InterviewGapsResponse> => request('/api/interview/gaps'),

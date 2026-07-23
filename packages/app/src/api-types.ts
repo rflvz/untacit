@@ -10,6 +10,11 @@
 import type {
   BatchEdge,
   BatchNode,
+  EmbeddingsConfig,
+  RetrievalChannel,
+  RetrievalConfig,
+  RetrievalPlan,
+  UntacitConfig,
   Conflict,
   ConflictEvidence,
   ConflictResolutionRecord,
@@ -38,6 +43,11 @@ import type {
 export type {
   BatchEdge,
   BatchNode,
+  EmbeddingsConfig,
+  RetrievalChannel,
+  RetrievalConfig,
+  RetrievalPlan,
+  UntacitConfig,
   Conflict,
   ConflictEvidence,
   ConflictResolutionRecord,
@@ -348,4 +358,63 @@ export interface InterviewFinishResponse {
   acceptedProposals: number;
   /** Verifications answered with confirm or refute. */
   verificationsResolved: number;
+}
+
+// ---------------------------------------------------------------------------
+// Settings & retrieval (Ajustes view)
+// ---------------------------------------------------------------------------
+
+/** GET /api/settings — current config + embedding-model status. */
+export interface SettingsResponse {
+  config: UntacitConfig;
+  embeddings: {
+    /** Whether @huggingface/transformers resolves in this installation. */
+    transformersInstalled: boolean;
+    /**
+     * Name of the provider currently loaded in the sidecar (e.g.
+     * "transformers:Xenova/multilingual-e5-small"), null when the semantic
+     * channel is off or the model has not been loaded yet (lazy).
+     */
+    activeProvider: string | null;
+    /** Default model id used when embeddings.model is not set. */
+    defaultModel: string;
+  };
+}
+
+/** Body of PUT /api/settings — sections replace their config counterpart. */
+export interface SettingsUpdateRequest {
+  embeddings?: EmbeddingsConfig;
+  retrieval?: RetrievalConfig;
+}
+
+export interface SettingsUpdateResponse {
+  ok: boolean;
+  config: UntacitConfig;
+  /** Commit hash, null when the repo is not git or nothing changed. */
+  commit: string | null;
+}
+
+/** Body of POST /api/retrieval/test. */
+export interface RetrievalTestRequest {
+  query: string;
+  limit?: number;
+  /** Try the query under a config other than the saved one (unsaved UI state). */
+  retrieval?: RetrievalConfig;
+}
+
+export interface RetrievalTestNode extends SearchResult {
+  seed: boolean;
+  distance: number;
+  channels: RetrievalChannel[];
+}
+
+/** POST /api/retrieval/test — one full pipeline run with provenance. */
+export interface RetrievalTestResponse {
+  nodes: RetrievalTestNode[];
+  edges: ApiEdge[];
+  truncated: boolean;
+  plan: RetrievalPlan;
+  /** Provider used for the semantic channels, null when unavailable. */
+  provider: string | null;
+  tookMs: number;
 }
