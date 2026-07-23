@@ -4,11 +4,14 @@
  * The real multilingual model (e5/bge family) runs locally through
  * transformers.js. `@huggingface/transformers` is deliberately NOT a
  * dependency of @untacit/core: it is resolved with a dynamic import so the
- * core stays lean, offline installs keep working, and the provider remains
- * pluggable. Install it in the workspace (`pnpm add @huggingface/transformers`)
- * to activate the model; without it, `provider: 'auto'` disables the semantic
+ * core stays lean and the provider remains pluggable. The workspace root
+ * installs it (package.json → dependencies), so repo checkouts and the
+ * staged desktop sidecar activate the model out of the box; in a stripped
+ * install without the module, `provider: 'auto'` disables the semantic
  * channel (fuzzy matching then relies on name similarity alone).
  */
+
+import { createRequire } from 'node:module';
 
 import { HashEmbeddingProvider } from '../resolver/index.js';
 import type { EmbeddingKind, EmbeddingProvider } from '../resolver/index.js';
@@ -26,6 +29,27 @@ type FeatureExtractionPipeline = (
   opts: { pooling: 'mean'; normalize: boolean },
 ) => Promise<FeatureExtractionOutput>;
 
+/** What we need from @huggingface/transformers (injectable for tests). */
+export interface TransformersModule {
+  pipeline: (task: string, model: string) => Promise<unknown>;
+}
+
+/** Import the optional module; throws the actionable install hint when absent. */
+async function loadTransformers(): Promise<TransformersModule> {
+  // Non-literal specifier: the module is optional and intentionally not a
+  // dependency, so TypeScript must not try to resolve its types.
+  const specifier = '@huggingface/transformers';
+  try {
+    return (await import(specifier)) as TransformersModule;
+  } catch {
+    throw new Error(
+      'Embedding provider "transformers" requires @huggingface/transformers — ' +
+        'install it in the workspace (pnpm add @huggingface/transformers) or set ' +
+        'embeddings.provider to "hash"/"auto" in untacit.config.json',
+    );
+  }
+}
+
 /**
  * Local multilingual model via transformers.js. e5-family models are trained
  * with asymmetric "query: " / "passage: " prefixes; they are applied here so
@@ -33,6 +57,13 @@ type FeatureExtractionPipeline = (
  */
 export class TransformersEmbeddingProvider implements EmbeddingProvider {
   readonly name: string;
+  /**
+   * e5/bge-family cosine concentrates in ~[0.75, 1.0] even for unrelated
+   * same-domain texts; the resolver rescales through this floor so scores
+   * stay comparable with its name-similarity-calibrated thresholds (a raw
+   * 0.9 between unrelated concepts must not read as a merge candidate).
+   */
+  readonly similarityFloor = 0.8;
   private readonly pipe: FeatureExtractionPipeline;
   private readonly e5: boolean;
 
@@ -45,21 +76,14 @@ export class TransformersEmbeddingProvider implements EmbeddingProvider {
   /**
    * Load the model (downloads weights to the local cache on first use).
    * Throws a descriptive error when transformers.js is not installed.
+   * `loadModule` is injectable so tests can simulate a missing module or a
+   * fake pipeline without touching the network.
    */
-  static async create(model: string = DEFAULT_EMBEDDING_MODEL): Promise<TransformersEmbeddingProvider> {
-    // Non-literal specifier: the module is optional and intentionally not a
-    // dependency, so TypeScript must not try to resolve its types.
-    const specifier = '@huggingface/transformers';
-    let mod: { pipeline: (task: string, model: string) => Promise<unknown> };
-    try {
-      mod = (await import(specifier)) as typeof mod;
-    } catch {
-      throw new Error(
-        'Embedding provider "transformers" requires @huggingface/transformers — ' +
-          'install it in the workspace (pnpm add @huggingface/transformers) or set ' +
-          'embeddings.provider to "hash"/"auto" in untacit.config.json',
-      );
-    }
+  static async create(
+    model: string = DEFAULT_EMBEDDING_MODEL,
+    loadModule: () => Promise<TransformersModule> = loadTransformers,
+  ): Promise<TransformersEmbeddingProvider> {
+    const mod = await loadModule();
     const pipe = (await mod.pipeline('feature-extraction', model)) as FeatureExtractionPipeline;
     return new TransformersEmbeddingProvider(model, pipe);
   }
@@ -69,6 +93,21 @@ export class TransformersEmbeddingProvider implements EmbeddingProvider {
     const input = this.e5 ? texts.map((t) => `${kind}: ${t}`) : texts;
     const output = await this.pipe(input, { pooling: 'mean', normalize: true });
     return output.tolist();
+  }
+}
+
+/**
+ * Whether @huggingface/transformers resolves in this installation — the
+ * settings surface uses it to report if the multilingual model can run.
+ * Resolution only (createRequire.resolve): the module itself — onnxruntime
+ * included — is NOT loaded, so this is cheap enough for a status endpoint.
+ */
+export async function transformersAvailable(): Promise<boolean> {
+  try {
+    createRequire(import.meta.url).resolve('@huggingface/transformers');
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -87,6 +126,7 @@ export class TransformersEmbeddingProvider implements EmbeddingProvider {
  */
 export async function createEmbeddingProvider(
   config?: EmbeddingsConfig | null,
+  loadModule?: () => Promise<TransformersModule>,
 ): Promise<EmbeddingProvider | null> {
   const kind = config?.provider ?? 'auto';
   switch (kind) {
@@ -95,10 +135,10 @@ export async function createEmbeddingProvider(
     case 'hash':
       return new HashEmbeddingProvider();
     case 'transformers':
-      return TransformersEmbeddingProvider.create(config?.model);
+      return TransformersEmbeddingProvider.create(config?.model, loadModule);
     case 'auto':
       try {
-        return await TransformersEmbeddingProvider.create(config?.model);
+        return await TransformersEmbeddingProvider.create(config?.model, loadModule);
       } catch (err) {
         // Module not installed → the documented, silent fallback. Anything
         // else (bad model id, failed download) is a misconfiguration the

@@ -125,8 +125,10 @@ node packages/cli/dist/bin.js search prepago --graph /tmp/acme-graph
 node packages/cli/dist/bin.js conflicts --graph /tmp/acme-graph   # ← the product working
 node packages/cli/dist/bin.js diff HEAD~1 HEAD --graph /tmp/acme-graph
 
-# Embeddings + semantic / hybrid retrieval (hash provider works offline;
-# install @huggingface/transformers for the local multilingual model)
+# Embeddings + semantic / hybrid retrieval. The workspace ships
+# @huggingface/transformers, so the local multilingual model (e5-small,
+# ~100 languages) works out of the box: --provider auto downloads and caches
+# it on first use. The hash provider remains the offline/deterministic option.
 node packages/cli/dist/bin.js embed --graph /tmp/acme-graph --provider hash
 node packages/cli/dist/bin.js search "pago anticipado" --mode hybrid --graph /tmp/acme-graph
 

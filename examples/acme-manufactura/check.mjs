@@ -25,6 +25,10 @@ function check(label, actual, expected) {
 
 const repo = mkdtempSync(join(tmpdir(), 'acme-check-'));
 core.initGraphRepo(repo);
+// The dataset's expected metrics were designed for name-based resolution:
+// pin embeddings off so the check stays deterministic and offline instead of
+// resolving 'auto' to the local multilingual model (workspace-installed).
+core.saveConfig(repo, { ...core.loadConfig(repo), embeddings: { provider: 'none' } });
 
 const batches = [
   '01-code.json',

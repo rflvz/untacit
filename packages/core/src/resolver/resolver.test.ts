@@ -15,6 +15,7 @@ import type {
 import {
   HashEmbeddingProvider,
   acceptMergeProposal,
+  calibratedCosine,
   cosineSimilarity,
   loadMergesFile,
   nameSimilarity,
@@ -229,6 +230,59 @@ describe('resolveBatch', () => {
     expect(resolutions.get('pago antiicipado')).toMatchObject({
       action: 'fuzzy-match',
       nodeId: 'policy-pago-anticipado',
+    });
+  });
+
+  it('calibratedCosine rescales through the provider floor', async () => {
+    const provider = new HashEmbeddingProvider();
+    const [a, b] = await provider.embed(['pago anticipado', 'pago anticipado']);
+    expect(calibratedCosine(a!, b!, 0)).toBeCloseTo(1, 6);
+    expect(calibratedCosine(a!, b!, 0.8)).toBeCloseTo(1, 6);
+    // A raw cosine at the floor reads as zero similarity; below it clamps.
+    expect(calibratedCosine([1, 0], [Math.SQRT1_2, Math.SQRT1_2], 0.8)).toBeCloseTo(0, 6);
+    // Halfway between floor and 1 lands at 0.5.
+    expect(calibratedCosine([1, 0], [0.9, Math.sqrt(1 - 0.81)], 0.8)).toBeCloseTo(0.5, 6);
+  });
+
+  it('a provider similarityFloor keeps high raw cosine from auto-merging', async () => {
+    // Two same-type nodes whose vectors are engineered to a raw cosine of
+    // ~0.95 — the band where e5-family models place *unrelated* same-domain
+    // texts. Without the floor this would fuzzy-match at ≥ auto (0.92).
+    const store = storeWith(
+      makeNode({ id: 'process-facturacion', type: 'process', name: 'Facturación mensual' }),
+    );
+    const vec = (angle: number): number[] => [Math.cos(angle), Math.sin(angle)];
+    const raw = 0.96;
+    const floored = {
+      name: 'fake-e5',
+      similarityFloor: 0.8,
+      embed: async (texts: string[]) => texts.map(() => vec(Math.acos(raw))),
+    };
+    const nodeVectors = new Map([['process-facturacion', vec(0)]]);
+    const batch = batchOf([bnode('Cuadrante de turnos', 'process')]);
+    const { resolutions, proposals } = await resolveBatch(batch, store, {
+      now: NOW,
+      embeddings: floored,
+      nodeVectors,
+    });
+    // (0.96 - 0.8) / 0.2 = 0.8 → inside the gray zone [0.75, 0.92): a
+    // proposal is queued for review, but NEVER an automatic merge.
+    expect(resolutions.get('Cuadrante de turnos')).toMatchObject({
+      action: 'created-provisional',
+    });
+    expect(proposals).toHaveLength(1);
+
+    // The same vectors without a floor would auto-merge — pinning the danger
+    // this calibration exists to prevent.
+    const unfloored = { ...floored, name: 'fake-raw', similarityFloor: 0 };
+    const again = await resolveBatch(batch, store, {
+      now: NOW,
+      embeddings: unfloored,
+      nodeVectors,
+    });
+    expect(again.resolutions.get('Cuadrante de turnos')).toMatchObject({
+      action: 'fuzzy-match',
+      nodeId: 'process-facturacion',
     });
   });
 

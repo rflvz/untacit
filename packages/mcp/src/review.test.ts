@@ -44,6 +44,9 @@ function makeGraphRepo(): string {
   const repo = mkdtempSync(join(tmpdir(), 'untacit-mcp-review-'));
   tmpDirs.push(repo);
   core.initGraphRepo(repo);
+  // Hermetic tests: pin embeddings off so imports never resolve 'auto' to
+  // the local multilingual model (a download at test time).
+  core.saveConfig(repo, { ...core.loadConfig(repo), embeddings: { provider: 'none' } });
 
   const supports = {
     source_type: 'code' as const,

@@ -18,5 +18,6 @@ export * from './resolver/index.js';
 export * from './embeddings/index.js';
 export * from './indexer/index.js';
 export * from './retrieval/index.js';
+export * from './retrieval/context.js';
 export * from './diff/index.js';
 export * from './pipeline/index.js';

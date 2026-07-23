@@ -19,15 +19,17 @@ import { DriftView } from './views/DriftView.js';
 import { GraphView } from './views/GraphView.js';
 import { InterviewView } from './views/InterviewView.js';
 import { ReviewView } from './views/ReviewView.js';
+import { SettingsView } from './views/SettingsView.js';
 import { WelcomeView } from './views/WelcomeView.js';
 
-type Tab = 'graph' | 'review' | 'drift' | 'interview';
+type Tab = 'graph' | 'review' | 'drift' | 'interview' | 'settings';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'graph', label: 'Grafo' },
   { id: 'review', label: 'Revisión' },
   { id: 'drift', label: 'Drift' },
   { id: 'interview', label: 'Entrevista' },
+  { id: 'settings', label: 'Ajustes' },
 ];
 
 export function App() {
@@ -210,6 +212,7 @@ export function App() {
         {tab === 'review' && <ReviewView onChanged={refreshStats} />}
         {tab === 'drift' && <DriftView />}
         {tab === 'interview' && <InterviewView onChanged={refreshStats} />}
+        {tab === 'settings' && <SettingsView />}
       </main>
     </>
   );

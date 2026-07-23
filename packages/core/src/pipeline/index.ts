@@ -281,6 +281,15 @@ export function loadConfig(repoRoot: string): UntacitConfig {
   };
 }
 
+/**
+ * Write untacit.config.json (2-space indent, trailing newline). The settings
+ * surface of the desktop app persists embeddings/retrieval choices through
+ * here; saving the result of loadConfig back is stable.
+ */
+export function saveConfig(repoRoot: string, config: UntacitConfig): void {
+  writeFileSync(configPath(repoRoot), `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+}
+
 /** Creates the graph-repo skeleton of docs/03 §3. Idempotent: existing files are kept. */
 export function initGraphRepo(dir: string, opts: InitOptions = {}): void {
   mkdirSync(dir, { recursive: true });

@@ -108,6 +108,8 @@ export function createServer(repoRoot: string, opts: ServeOptions = {}): McpServ
           limit,
           depth,
           embeddings: await getProvider(),
+          // Channel switches / auto mode from untacit.config.json → retrieval.
+          retrieval: loadConfig(repoRoot).retrieval,
         });
         if (result.nodes.length === 0) {
           return {
