@@ -37,6 +37,9 @@ function makeGraphRepo(label: string): string {
   const repo = mkdtempSync(join(tmpdir(), `untacit-http-${label}-`));
   tmpDirs.push(repo);
   core.initGraphRepo(repo);
+  // Hermetic tests: pin embeddings off so imports never resolve 'auto' to
+  // the local multilingual model (a download at test time).
+  core.saveConfig(repo, { ...core.loadConfig(repo), embeddings: { provider: 'none' } });
   // Deterministic offline embeddings so the semantic channel is verifiable.
   const configPath = join(repo, 'untacit.config.json');
   const config = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>;

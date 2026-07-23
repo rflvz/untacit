@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { GraphIndex, HashEmbeddingProvider, importBatch, initGraphRepo } from '@untacit/core';
+import { GraphIndex, HashEmbeddingProvider, importBatch, initGraphRepo, loadConfig, saveConfig } from '@untacit/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
@@ -25,6 +25,9 @@ let index: GraphIndex;
 beforeAll(async () => {
   repo = mkdtempSync(join(tmpdir(), 'untacit-mcp-'));
   initGraphRepo(repo);
+  // Hermetic tests: pin embeddings off so imports never resolve 'auto' to
+  // the local multilingual model (a download at test time).
+  saveConfig(repo, { ...loadConfig(repo), embeddings: { provider: 'none' } });
   for (const file of ['01-code.json', '02-docs.json', '03-interview.json']) {
     const batch = JSON.parse(readFileSync(join(BATCHES, file), 'utf8')) as unknown;
     await importBatch(repo, batch, { now: new Date('2026-07-14T12:00:00Z') });

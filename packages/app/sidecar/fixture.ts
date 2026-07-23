@@ -91,6 +91,9 @@ export function createFixtureRepo(): string {
           resolver_auto: core.DEFAULT_RESOLVER_THRESHOLDS.auto,
           resolver_gray: core.DEFAULT_RESOLVER_THRESHOLDS.gray,
         },
+        // Tests must be hermetic: 'auto' would download the multilingual
+        // model on the first import now that transformers.js ships installed.
+        embeddings: { provider: 'none' },
       },
       null,
       2,
