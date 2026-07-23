@@ -57,6 +57,13 @@ async function loadTransformers(): Promise<TransformersModule> {
  */
 export class TransformersEmbeddingProvider implements EmbeddingProvider {
   readonly name: string;
+  /**
+   * e5/bge-family cosine concentrates in ~[0.75, 1.0] even for unrelated
+   * same-domain texts; the resolver rescales through this floor so scores
+   * stay comparable with its name-similarity-calibrated thresholds (a raw
+   * 0.9 between unrelated concepts must not read as a merge candidate).
+   */
+  readonly similarityFloor = 0.8;
   private readonly pipe: FeatureExtractionPipeline;
   private readonly e5: boolean;
 

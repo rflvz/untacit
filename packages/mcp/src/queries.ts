@@ -17,6 +17,7 @@ import type {
 } from '@untacit/core';
 import {
   buildAdjacency,
+  calibratedCosine,
   cosineSimilarity,
   diffRefs,
   edgeWeight,
@@ -262,11 +263,14 @@ export async function similarQuery(
     const structural =
       STRUCTURAL_JACCARD_SHARE * overlap + (1 - STRUCTURAL_JACCARD_SHARE) * position;
     const candidateVec = vectors.get(candidate.id);
+    // Calibrated like the resolver: e5/bge cosine lives in a compressed high
+    // band, and this is the duplicate lens — inflated raw cosine would flag
+    // every same-domain pair as a merge candidate.
     const semantic =
       originVec !== undefined &&
       candidateVec !== undefined &&
       candidateVec.length === originVec.length
-        ? Math.max(0, cosineSimilarity(originVec, candidateVec))
+        ? calibratedCosine(originVec, candidateVec, provider?.similarityFloor ?? 0)
         : undefined;
 
     // Redistribute the semantic weight when the signal is unavailable.

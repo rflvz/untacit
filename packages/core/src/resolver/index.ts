@@ -153,7 +153,27 @@ export type EmbeddingKind = 'query' | 'passage';
 export interface EmbeddingProvider {
   /** Stable identifier persisted next to each vector (cache key component). */
   name: string;
+  /**
+   * Cosine value that counts as "no similarity" for this provider's vectors.
+   * Sentence-embedding families (e5/bge) concentrate cosine in a high band
+   * (~0.75–1.0 even for unrelated same-domain texts), so their raw cosine
+   * cannot be compared against thresholds calibrated for name similarity —
+   * without a floor, the resolver would auto-merge unrelated concepts.
+   * Absent/0 leaves the cosine untouched (hash provider, tests).
+   */
+  similarityFloor?: number;
   embed(texts: string[], kind?: EmbeddingKind): Promise<number[][]>;
+}
+
+/**
+ * Cosine rescaled so `floor` maps to 0 and 1 stays 1 — the value that IS
+ * comparable against the resolver/similarity thresholds. Negative results
+ * clamp to 0.
+ */
+export function calibratedCosine(a: number[], b: number[], floor = 0): number {
+  const cos = cosineSimilarity(a, b);
+  if (floor <= 0) return cos;
+  return Math.max(0, (cos - floor) / (1 - floor));
 }
 
 /**
@@ -380,7 +400,10 @@ export async function resolveBatch(
       if (mentionVec !== undefined && nodeVectors !== null) {
         const candidateVec = nodeVectors.get(candidate.id);
         if (candidateVec !== undefined && candidateVec.length === mentionVec.length) {
-          score = Math.max(score, cosineSimilarity(mentionVec, candidateVec));
+          score = Math.max(
+            score,
+            calibratedCosine(mentionVec, candidateVec, provider?.similarityFloor ?? 0),
+          );
         }
       }
       if (score > bestScore) {
