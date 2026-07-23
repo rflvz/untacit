@@ -174,7 +174,9 @@ function ftsTokens(text: string): string[] {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .split(/[^a-z0-9]+/)
+    // Any Unicode letter/number separates like unicode61 does — an ASCII-only
+    // class would silently drop non-Latin scripts the FTS table indexes fine.
+    .split(/[^\p{L}\p{N}]+/u)
     .filter((t) => t.length > 0);
 }
 
