@@ -18,6 +18,7 @@ export const RUNS_DIR = 'runs';
 export const MERGES_FILE = 'merges.json';
 export const INDEX_DIR = '.untacit';
 export const INDEX_DB = 'index.db';
+export const INTERVIEW_SESSION_FILE = 'interview-session.json';
 
 export function configPath(repoRoot: string): string {
   return join(repoRoot, CONFIG_FILE);
@@ -49,4 +50,12 @@ export function mergesFilePath(repoRoot: string): string {
 
 export function indexDbPath(repoRoot: string): string {
   return join(repoRoot, INDEX_DIR, INDEX_DB);
+}
+
+/**
+ * Interrupted-interview state (`untacit interview --resume`). Lives under
+ * .untacit/ so it is derived-state territory: gitignored, never committed.
+ */
+export function interviewSessionPath(repoRoot: string): string {
+  return join(repoRoot, INDEX_DIR, INTERVIEW_SESSION_FILE);
 }

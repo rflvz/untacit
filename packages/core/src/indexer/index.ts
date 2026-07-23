@@ -450,6 +450,45 @@ export async function buildEmbeddings(
  * WAL back into the main file and switch to the DELETE journal so the .db can
  * be shipped alone (serverless bundles) and opened with `openReadonly`.
  */
+/**
+ * Read-only freshness report of the derived index against the node files on
+ * disk (for diagnostics like `untacit doctor`). Never creates or mutates the
+ * database: a missing .untacit/index.db reports `exists: false` with every
+ * file pending, instead of building one as openIndexDb would.
+ */
+export function indexStaleness(repoRoot: string): {
+  exists: boolean;
+  stale: number;
+  removed: number;
+  total: number;
+} {
+  const disk = new Map<string, string>();
+  for (const abs of listNodeFiles(repoRoot)) {
+    disk.set(toRepoRel(repoRoot, abs), sha1(readFileSync(abs)));
+  }
+
+  const dbPath = indexDbPath(repoRoot);
+  if (!existsSync(dbPath)) {
+    return { exists: false, stale: disk.size, removed: 0, total: disk.size };
+  }
+
+  const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+  try {
+    const known = new Map<string, string>();
+    for (const row of db.prepare('SELECT path, hash FROM files').all() as {
+      path: string;
+      hash: string;
+    }[]) {
+      known.set(row.path, row.hash);
+    }
+    const stale = [...disk.entries()].filter(([rel, hash]) => known.get(rel) !== hash).length;
+    const removed = [...known.keys()].filter((rel) => !disk.has(rel)).length;
+    return { exists: true, stale, removed, total: disk.size };
+  } finally {
+    db.close();
+  }
+}
+
 export function checkpointIndex(repoRoot: string): void {
   const db = openIndexDb(repoRoot);
   try {
@@ -955,6 +994,17 @@ export class GraphIndex {
         .get(provider.name) as { c: number }
     ).c;
     return { provider: provider.name, computed: stale.length, removed, total };
+  }
+
+  /** Embedding-cache coverage for a provider: cached vectors vs node count. */
+  embeddingCoverage(providerName: string): { embedded: number; nodes: number } {
+    const embedded = (
+      this.db
+        .prepare('SELECT COUNT(*) AS c FROM embeddings WHERE provider = ?')
+        .get(providerName) as { c: number }
+    ).c;
+    const nodes = (this.db.prepare('SELECT COUNT(*) AS c FROM nodes').get() as { c: number }).c;
+    return { embedded, nodes };
   }
 
   /**

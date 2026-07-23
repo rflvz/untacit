@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -6,7 +6,13 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_REVIEW_THRESHOLD } from '../constants.js';
 import { gitCurrentBranch, gitInit, gitShowFile, gitStatusClean } from '../git.js';
 import { configPath } from '../paths.js';
-import { defaultConfig, importBatch, initGraphRepo, loadConfig } from './index.js';
+import {
+  agentsMdTemplate,
+  defaultConfig,
+  importBatch,
+  initGraphRepo,
+  loadConfig,
+} from './index.js';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'untacit-config-'));
 
@@ -30,6 +36,48 @@ describe('initGraphRepo git initialization', () => {
     initGraphRepo(dir);
     expect(() => initGraphRepo(dir)).not.toThrow();
     expect(existsSync(join(dir, '.git'))).toBe(true);
+  });
+});
+
+describe('initGraphRepo AGENTS.md', () => {
+  it('writes AGENTS.md and includes it in the initial commit (clean status)', () => {
+    const dir = tmp();
+    initGraphRepo(dir);
+    expect(existsSync(join(dir, 'AGENTS.md'))).toBe(true);
+    // Committed, not left untracked — an untracked AGENTS.md would break the
+    // `git status --porcelain` idempotence canary in cli.test.ts.
+    expect(gitStatusClean(dir)).toBe(true);
+    expect(gitShowFile(dir, 'HEAD', 'AGENTS.md')).toContain('untacit');
+  });
+
+  it('skips AGENTS.md when agentsMd: false', () => {
+    const dir = tmp();
+    initGraphRepo(dir, { agentsMd: false, git: false });
+    expect(existsSync(join(dir, 'AGENTS.md'))).toBe(false);
+  });
+
+  it('never overwrites a pre-existing AGENTS.md', () => {
+    const dir = tmp();
+    writeFileSync(join(dir, 'AGENTS.md'), 'custom agent notes\n', 'utf8');
+    initGraphRepo(dir);
+    expect(readFileSync(join(dir, 'AGENTS.md'), 'utf8')).toBe('custom agent notes\n');
+  });
+
+  it("writes Spanish for language 'es' and English for any other language", () => {
+    const es = tmp();
+    initGraphRepo(es, { git: false, language: 'es' });
+    expect(readFileSync(join(es, 'AGENTS.md'), 'utf8')).toContain('NO edites');
+
+    const en = tmp();
+    initGraphRepo(en, { git: false, language: 'en' });
+    const content = readFileSync(join(en, 'AGENTS.md'), 'utf8');
+    expect(content).toContain('Do NOT edit');
+    expect(content).not.toContain('NO edites');
+
+    // Any non-'es' value falls back to English (template is the same helper
+    // initGraphRepo uses).
+    expect(agentsMdTemplate('fr')).toContain('Do NOT edit');
+    expect(agentsMdTemplate('es')).toContain('NO edites');
   });
 });
 
