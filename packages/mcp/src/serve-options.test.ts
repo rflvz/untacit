@@ -25,6 +25,9 @@ function makeRepo(): string {
   const repo = mkdtempSync(join(tmpdir(), 'untacit-mcp-opts-'));
   tmpDirs.push(repo);
   core.initGraphRepo(repo);
+  // Hermetic tests: pin embeddings off so no tool call ever resolves 'auto'
+  // to the local multilingual model (a download at test time).
+  core.saveConfig(repo, { ...core.loadConfig(repo), embeddings: { provider: 'none' } });
   return repo;
 }
 

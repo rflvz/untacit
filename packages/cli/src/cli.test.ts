@@ -21,6 +21,28 @@ function cli(args: string[]): string {
   });
 }
 
+/**
+ * Hermetic tests: pin embeddings off in a freshly-inited repo so imports
+ * never resolve 'auto' to the local multilingual model (a weights download
+ * at test time, and semantic fuzzy matching that would change the expected
+ * resolution counts). Committed so `git status` stays clean for the
+ * idempotence/branch assertions.
+ */
+function pinEmbeddingsOff(graphRepo: string): void {
+  const configPath = join(graphRepo, 'untacit.config.json');
+  const config = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+  writeFileSync(
+    configPath,
+    `${JSON.stringify({ ...config, embeddings: { provider: 'none' } }, null, 2)}\n`,
+    'utf8',
+  );
+  execFileSync(
+    'git',
+    ['-c', 'user.name=test', '-c', 'user.email=test@localhost', 'commit', '-am', 'test: pin embeddings off'],
+    { cwd: graphRepo, encoding: 'utf8' },
+  );
+}
+
 let repo: string;
 
 beforeAll(() => {
@@ -35,20 +57,7 @@ describe('untacit CLI (Fase 0 exit criteria)', () => {
   it('init creates a graph repo', () => {
     const out = cli(['init', repo]);
     expect(out).toContain('initialized');
-    // Hermetic tests: pin embeddings off so imports never resolve 'auto' to
-    // the local multilingual model (a download at test time, and semantic
-    // fuzzy matching that would change the expected resolution counts).
-    const configPath = join(repo, 'untacit.config.json');
-    const config = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>;
-    writeFileSync(
-      configPath,
-      `${JSON.stringify({ ...config, embeddings: { provider: 'none' } }, null, 2)}\n`,
-      'utf8',
-    );
-    execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@localhost', 'commit', '-am', 'test: pin embeddings off'], {
-      cwd: repo,
-      encoding: 'utf8',
-    });
+    pinEmbeddingsOff(repo);
   });
 
   it('import materializes a batch and commits a run', () => {
@@ -135,6 +144,7 @@ describe('untacit import --branch (extraction-as-PR, Fase 5)', () => {
     const prRepo = mkdtempSync(join(tmpdir(), 'untacit-cli-pr-'));
     try {
       cli(['init', prRepo]);
+      pinEmbeddingsOff(prRepo);
       const out = cli(['import', join(BATCHES, '01-code.json'), '--graph', prRepo, '--branch']);
       expect(out).toContain('on branch run/2026-07-01T10-00-00-code');
       const status = execFileSync('git', ['status', '--porcelain'], { cwd: prRepo, encoding: 'utf8' });
