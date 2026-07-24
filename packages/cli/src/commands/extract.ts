@@ -7,6 +7,8 @@ import { importBatch } from '@untacit/core';
 import type { Command } from 'commander';
 import pc from 'picocolors';
 
+import { EXTRACT_VERBS } from '../theme.js';
+import { progressSpinner } from '../ui.js';
 import { graphRoot, positiveInt, runBranchName } from './helpers.js';
 
 export function registerExtractCommands(program: Command): void {
@@ -79,10 +81,17 @@ export function registerExtractCommands(program: Command): void {
         }
         const llm = new ClaudeCodeLlmClient(opts.model !== undefined ? { model: opts.model } : {});
         const commit = isGitRepo(root) ? gitRevParse(root, 'HEAD').slice(0, 12) : undefined;
-        const result = await extractFromCandidates(llm, candidates, {
-          chunkSize: positiveInt(opts.chunkSize, '--chunk-size'),
-          ...(commit !== undefined ? { commit } : {}),
-        });
+        // Spinner on stderr: stdout may carry the batch JSON and must stay clean.
+        const spin = progressSpinner('extrayendo', { mood: 'thinking', verbs: EXTRACT_VERBS, elapsed: true });
+        let result: Awaited<ReturnType<typeof extractFromCandidates>>;
+        try {
+          result = await extractFromCandidates(llm, candidates, {
+            chunkSize: positiveInt(opts.chunkSize, '--chunk-size'),
+            ...(commit !== undefined ? { commit } : {}),
+          });
+        } finally {
+          spin.stop();
+        }
         for (const issue of result.rejections) {
           console.error(`${pc.yellow('rejected')} ${issue.path}: ${issue.message}`);
         }
@@ -177,9 +186,16 @@ export function registerExtractCommands(program: Command): void {
           throw new Error(`el motor de extracción es Claude Code y no está disponible: ${engine.detail}`);
         }
         const llm = new ClaudeCodeLlmClient(opts.model !== undefined ? { model: opts.model } : {});
-        const result = await extractFromSections(llm, sections, {
-          sectionsPerCall: positiveInt(opts.sectionsPerCall, '--sections-per-call'),
-        });
+        // Spinner on stderr: stdout may carry the batch JSON and must stay clean.
+        const spin = progressSpinner('extrayendo', { mood: 'thinking', verbs: EXTRACT_VERBS, elapsed: true });
+        let result: Awaited<ReturnType<typeof extractFromSections>>;
+        try {
+          result = await extractFromSections(llm, sections, {
+            sectionsPerCall: positiveInt(opts.sectionsPerCall, '--sections-per-call'),
+          });
+        } finally {
+          spin.stop();
+        }
         for (const issue of result.rejections) {
           console.error(`${pc.yellow('rejected')} ${issue.path}: ${issue.message}`);
         }

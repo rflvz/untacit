@@ -22,6 +22,7 @@ import {
 import type { EmbeddingsConfig } from '@untacit/core';
 import pc from 'picocolors';
 
+import { STATUS_GLYPHS } from './theme.js';
 import { checkRemote, installRoot } from './update.js';
 
 export type DoctorStatus = 'ok' | 'warn' | 'fail';
@@ -302,18 +303,12 @@ export async function doctorChecks(
   return checks;
 }
 
-const GLYPHS: Record<DoctorStatus, { unicode: string; ascii: string; paint: (s: string) => string }> = {
-  ok: { unicode: '✓', ascii: '+', paint: pc.green },
-  warn: { unicode: '!', ascii: '!', paint: pc.yellow },
-  fail: { unicode: '✗', ascii: 'x', paint: pc.red },
-};
-
 /** Human rendering: one line per check, fix hints dimmed, summary last. */
 export function formatDoctorText(checks: DoctorCheck[], unicode: boolean): string {
   const lines: string[] = [];
   const width = Math.max(...checks.map((c) => c.name.length));
   for (const check of checks) {
-    const glyph = GLYPHS[check.status];
+    const glyph = STATUS_GLYPHS[check.status];
     lines.push(`${glyph.paint(unicode ? glyph.unicode : glyph.ascii)} ${check.name.padEnd(width)}  ${check.detail}`);
     if (check.fix !== undefined) lines.push(pc.dim(`  ${' '.repeat(width)}  fix: ${check.fix}`));
   }

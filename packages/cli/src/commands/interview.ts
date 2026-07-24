@@ -13,6 +13,7 @@ import type { Command } from 'commander';
 import pc from 'picocolors';
 
 import { stdinIsInteractive, stdoutIsInteractive, unicodeOk } from '../output.js';
+import { SCRIPT_VERBS, THINKING_VERBS } from '../theme.js';
 import { createInterviewUi } from '../ui.js';
 import { cliVersion, graphRoot } from './helpers.js';
 
@@ -118,7 +119,7 @@ export function registerInterviewCommand(program: Command): void {
           rmSync(sessionPath, { force: true });
         }
         console.log(pc.dim(`${gaps.length} huecos detectados en el grafo`));
-        const spin = ui.spinner('generando guion');
+        const spin = ui.spinner('generando guion', { verbs: SCRIPT_VERBS, elapsed: true });
         let script: string[];
         try {
           script = await extractors.generateScript(llm, gaps);
@@ -131,7 +132,7 @@ export function registerInterviewCommand(program: Command): void {
         state = extractors.startInterview(interviewId, role, { script, verifications });
       }
 
-      ui.banner(cliVersion(), repo, state.speakerRole);
+      await ui.banner(cliVersion(), repo, state.speakerRole);
 
       // Save after every turn (atomic tmp+rename): a crash or Ctrl+C loses at
       // most the answer in flight, and the generated script — an LLM spend —
@@ -201,7 +202,7 @@ export function registerInterviewCommand(program: Command): void {
           // A transient LLM failure must not kill the session: processAnswer
           // leaves the state untouched on error, so the user just retries.
           // The spinner stops before anything else prints — it owns the line.
-          const spin = ui.spinner('pensando');
+          const spin = ui.spinner('pensando', { mood: 'thinking', verbs: THINKING_VERBS, elapsed: true });
           let outcome: Awaited<ReturnType<typeof extractors.processAnswer>>;
           try {
             outcome = await extractors.processAnswer(llm, state, answer);
