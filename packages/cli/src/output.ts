@@ -22,6 +22,11 @@ export function stdinIsInteractive(): boolean {
   return process.stdin.isTTY === true;
 }
 
+/** stderr is a live terminal (progress spinners for non-interview commands). */
+export function stderrIsInteractive(): boolean {
+  return process.stderr.isTTY === true && process.env['TERM'] !== 'dumb';
+}
+
 /**
  * The locale advertises UTF-8, so box-drawing/spinner glyphs are safe.
  * Same criterion as install.sh; WT_SESSION covers Windows Terminal, where

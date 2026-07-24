@@ -16,6 +16,8 @@ import type { Command } from 'commander';
 import pc from 'picocolors';
 
 import { emitJson } from '../output.js';
+import { EMBED_VERBS } from '../theme.js';
+import { progressSpinner } from '../ui.js';
 import { graphRoot, providerFor, runBranchName } from './helpers.js';
 
 export function registerGraphCommands(program: Command): void {
@@ -107,7 +109,13 @@ export function registerGraphCommands(program: Command): void {
           if (opts.json) console.error(note);
           else console.log(pc.yellow(note));
         } else {
-          embeddings = await buildEmbeddings(repo, provider);
+          // Spinner on stderr: --json keeps stdout machine-clean either way.
+          const spin = progressSpinner('calculando embeddings', { verbs: EMBED_VERBS, elapsed: true });
+          try {
+            embeddings = await buildEmbeddings(repo, provider);
+          } finally {
+            spin.stop();
+          }
           if (!opts.json) {
             console.log(
               `embeddings: ${embeddings.computed} computed, ${embeddings.removed} removed, ${embeddings.total} total (${embeddings.provider})`,
@@ -138,7 +146,14 @@ export function registerGraphCommands(program: Command): void {
         }
         return;
       }
-      const result = await buildEmbeddings(repo, provider);
+      // Spinner on stderr: --json keeps stdout machine-clean either way.
+      const spin = progressSpinner('calculando embeddings', { verbs: EMBED_VERBS, elapsed: true });
+      let result: Awaited<ReturnType<typeof buildEmbeddings>>;
+      try {
+        result = await buildEmbeddings(repo, provider);
+      } finally {
+        spin.stop();
+      }
       if (opts.json) {
         emitJson(result);
         return;
