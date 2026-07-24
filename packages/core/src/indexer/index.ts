@@ -11,420 +11,53 @@
  * post-checkout or manual-edit refreshes only touch changed files. Dangling
  * edge targets (target node file missing) are indexed anyway and never crash
  * a query — they simply produce no node row.
+ *
+ * Module map: schema.ts (DDL + versioning), rows.ts (row shapes + pure
+ * helpers), fts.ts (FTS5 escaping/tokenization), build.ts (open/sync/build),
+ * embeddings-store.ts (vector cache + semantic search). This file holds the
+ * GraphIndex query surface and re-exports the public API.
  */
 
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { dirname, join, relative, sep } from 'node:path';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { DEFAULT_REVIEW_THRESHOLD } from '../constants.js';
 import { conflictEvidenceKey } from '../graph/index.js';
-import { canonicalJson, edgeId, nodeRef } from '../ids.js';
+import { nodeRef } from '../ids.js';
 import { indexDbPath } from '../paths.js';
-import { cosineSimilarity, embeddingTextForNode } from '../resolver/index.js';
 import type { EmbeddingProvider } from '../resolver/index.js';
-import { listNodeFiles, readNodeFile } from '../serializer/index.js';
 import type {
   Conflict,
   EdgeType,
   ElementStatus,
   Evidence,
-  ExtractorInfo,
   GraphEdge,
   GraphNode,
   GraphStats,
-  Locator,
   NodeRef,
   NodeType,
   SearchResult,
-  SourceType,
-  Stance,
 } from '../types.js';
-import { createSchema, dropSchema, ensureSchema } from './schema.js';
+import { openIndexDb, syncIndex } from './build.js';
+import {
+  embeddingCoverage,
+  lateInteractionSearch,
+  nodeVectors,
+  semanticSearch,
+  updateEmbeddings,
+  updateFacetEmbeddings,
+} from './embeddings-store.js';
+import type { EmbeddingUpdateResult } from './embeddings-store.js';
+import { ftsTokens, toFtsQuery } from './fts.js';
+import { compareEdgeRows, firstLine, rowToEvidence, toEdgeRow } from './rows.js';
+import type { EdgeRow, EdgeRowDb, EvidenceRowDb, NodeRowDb } from './rows.js';
+import { readNodeFile } from '../serializer/index.js';
 
 export { INDEX_SCHEMA_VERSION } from './schema.js';
-
-// ---------------------------------------------------------------------------
-// Public row shapes
-// ---------------------------------------------------------------------------
-
-export interface EdgeRow {
-  /** Stable edge id: edgeId(type, source, target) from ids.ts. */
-  id: string;
-  /** Source node id (the node whose file owns the edge). */
-  source: string;
-  type: EdgeType;
-  /** Target node ref "<type>/<id>" exactly as written in the file. */
-  target: NodeRef;
-  /** Target node id (may be dangling — no node file for it). */
-  targetId: string;
-  confidence: number;
-  status: ElementStatus;
-  attrs?: Record<string, unknown>;
-}
-
-export interface BuildIndexOptions {
-  /** Recreate the database from scratch instead of diffing file hashes. */
-  full?: boolean;
-}
-
-export interface EmbeddingUpdateResult {
-  /** Provider whose vectors the table now holds. */
-  provider: string;
-  /** Nodes (re)embedded in this pass. */
-  computed: number;
-  /** Rows dropped (nodes gone, or vectors from another provider). */
-  removed: number;
-  /** Nodes with a vector after the pass. */
-  total: number;
-}
-
-// ---------------------------------------------------------------------------
-// Internal row shapes (database column names)
-// ---------------------------------------------------------------------------
-
-interface NodeRowDb {
-  id: string;
-  type: string;
-  name: string;
-  status: string;
-  description: string;
-  schema_version: number;
-  file_path: string;
-}
-
-interface EdgeRowDb {
-  id: string;
-  source_id: string;
-  type: string;
-  target_ref: string;
-  target_id: string;
-  confidence: number;
-  status: string;
-  attrs_json: string | null;
-}
-
-interface EvidenceRowDb {
-  id: number;
-  owner_kind: string;
-  owner_id: string;
-  source_type: string;
-  locator_json: string;
-  excerpt: string;
-  stance: string;
-  extractor_json: string | null;
-  extracted_at: string | null;
-  run: string | null;
-  validated_by: string | null;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function sha1(content: Buffer | string): string {
-  return createHash('sha1').update(content).digest('hex');
-}
-
-/** Repo-relative path with forward slashes, so the index survives repo moves. */
-function toRepoRel(repoRoot: string, absPath: string): string {
-  return relative(repoRoot, absPath).split(sep).join('/');
-}
-
-/** Target node id from a "<type>/<id>" ref; tolerant of malformed refs. */
-function targetIdOf(target: NodeRef): string {
-  const idx = target.indexOf('/');
-  return idx === -1 ? target : target.slice(idx + 1);
-}
-
-function firstLine(description: string): string {
-  const nl = description.indexOf('\n');
-  return (nl === -1 ? description : description.slice(0, nl)).trim();
-}
-
-/** SQLite only binds primitives; coerce YAML surprises (dates, numbers) to text. */
-function asTextOrNull(value: unknown): string | null {
-  if (value === undefined || value === null) return null;
-  return typeof value === 'string' ? value : String(value);
-}
-
-/**
- * Escape a raw user query into a safe FTS5 MATCH expression: each whitespace
- * token becomes a double-quoted phrase (implicit AND); a trailing `*` on the
- * raw query turns the last phrase into a prefix query.
- */
-function toFtsQuery(raw: string): string | undefined {
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) return undefined;
-  const prefix = trimmed.endsWith('*');
-  const body = prefix ? trimmed.slice(0, -1) : trimmed;
-  const tokens = body.split(/\s+/).filter((t) => t.length > 0);
-  if (tokens.length === 0) return undefined;
-  const phrases = tokens.map((t) => `"${t.replaceAll('"', '""')}"`);
-  if (prefix) phrases[phrases.length - 1] += '*';
-  return phrases.join(' ');
-}
-
-/**
- * Tokenize like the FTS table does (unicode61, remove_diacritics 2, lowered),
- * so PRF candidate terms line up with the `search_vocab` statistics.
- */
-function ftsTokens(text: string): string[] {
-  return text
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    // Any Unicode letter/number separates like unicode61 does — an ASCII-only
-    // class would silently drop non-Latin scripts the FTS table indexes fine.
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter((t) => t.length > 0);
-}
-
-function toEdgeRow(row: EdgeRowDb): EdgeRow {
-  const edge: EdgeRow = {
-    id: row.id,
-    source: row.source_id,
-    type: row.type as EdgeType,
-    target: row.target_ref,
-    targetId: row.target_id,
-    confidence: row.confidence,
-    status: row.status as ElementStatus,
-  };
-  if (row.attrs_json !== null) {
-    edge.attrs = JSON.parse(row.attrs_json) as Record<string, unknown>;
-  }
-  return edge;
-}
-
-function rowToEvidence(row: EvidenceRowDb): Evidence {
-  const ev: Evidence = {
-    source_type: row.source_type as SourceType,
-    locator: JSON.parse(row.locator_json) as Locator,
-    excerpt: row.excerpt,
-    stance: row.stance as Stance,
-  };
-  if (row.extractor_json !== null) {
-    ev.extractor = JSON.parse(row.extractor_json) as ExtractorInfo;
-  }
-  if (row.extracted_at !== null) ev.extracted_at = row.extracted_at;
-  if (row.run !== null) ev.run = row.run;
-  if (row.validated_by !== null) ev.validated_by = row.validated_by;
-  return ev;
-}
-
-function compareEdgeRows(a: EdgeRow, b: EdgeRow): number {
-  return (
-    a.source.localeCompare(b.source) ||
-    a.type.localeCompare(b.type) ||
-    a.target.localeCompare(b.target)
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Embedding vector encoding — Float32 BLOBs, little-endian
-// ---------------------------------------------------------------------------
-
-function encodeVector(vector: number[]): Buffer {
-  return Buffer.from(new Float32Array(vector).buffer);
-}
-
-function decodeVector(blob: Buffer): number[] {
-  const floats = new Float32Array(blob.buffer, blob.byteOffset, blob.byteLength / 4);
-  return Array.from(floats);
-}
-
-/** Cache key of a node's vector: provider identity + embedded text. */
-function embeddingHash(providerName: string, text: string): string {
-  return sha1(`${providerName}\0${text}`);
-}
-
-/** Facet cap per node: name facet + up to this many description segments. */
-const MAX_DESCRIPTION_FACETS = 5;
-
-/**
- * Split a description into sentence-ish segments for late-interaction
- * embedding: newline first, then sentence enders. Short fragments (< 15
- * chars) merge into their neighbor so facets stay meaningful; at most
- * MAX_DESCRIPTION_FACETS survive (the head of the description wins).
- */
-function segmentDescription(description: string): string[] {
-  const rough = description
-    .split(/\n+/)
-    .flatMap((line) => line.split(/(?<=[.!?;])\s+/))
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  const segments: string[] = [];
-  for (const piece of rough) {
-    if (piece.length < 15 && segments.length > 0) {
-      segments[segments.length - 1] += ` ${piece}`;
-    } else {
-      segments.push(piece);
-    }
-  }
-  return segments.slice(0, MAX_DESCRIPTION_FACETS);
-}
-
-// ---------------------------------------------------------------------------
-// Database open + sync (shared by buildIndex and GraphIndex)
-// ---------------------------------------------------------------------------
-
-function openIndexDb(repoRoot: string): Database.Database {
-  const dbPath = indexDbPath(repoRoot);
-  mkdirSync(dirname(dbPath), { recursive: true });
-  const db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  ensureSchema(db);
-  return db;
-}
-
-/**
- * Diff the `files` table (path → content hash) against the node files on
- * disk; reindex added/changed files, drop rows for removed files. Each
- * file's multi-table update runs inside a transaction.
- */
-function syncIndex(
-  db: Database.Database,
-  repoRoot: string,
-): { indexed: number; removed: number; total: number } {
-  const disk = new Map<string, { abs: string; hash: string }>();
-  for (const abs of listNodeFiles(repoRoot)) {
-    disk.set(toRepoRel(repoRoot, abs), { abs, hash: sha1(readFileSync(abs)) });
-  }
-
-  const known = new Map<string, string>();
-  const knownRows = db.prepare('SELECT path, hash FROM files').all() as {
-    path: string;
-    hash: string;
-  }[];
-  for (const row of knownRows) known.set(row.path, row.hash);
-
-  const toIndex = [...disk.entries()].filter(([rel, f]) => known.get(rel) !== f.hash);
-  const toRemove = [...known.keys()].filter((rel) => !disk.has(rel));
-
-  const stmts = {
-    nodeIdsForFile: db.prepare('SELECT id FROM nodes WHERE file_path = ?'),
-    delEdgeEvidence: db.prepare(
-      "DELETE FROM evidence WHERE owner_kind = 'edge' AND owner_id IN (SELECT id FROM edges WHERE source_id = ?)",
-    ),
-    delNodeEvidence: db.prepare("DELETE FROM evidence WHERE owner_kind = 'node' AND owner_id = ?"),
-    delEdges: db.prepare('DELETE FROM edges WHERE source_id = ?'),
-    delAliases: db.prepare('DELETE FROM node_aliases WHERE node_id = ?'),
-    delSearch: db.prepare('DELETE FROM search WHERE node_id = ?'),
-    delNode: db.prepare('DELETE FROM nodes WHERE id = ?'),
-    delFile: db.prepare('DELETE FROM files WHERE path = ?'),
-    insNode: db.prepare(
-      'INSERT OR REPLACE INTO nodes (id, type, name, status, description, schema_version, file_path) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    ),
-    insAlias: db.prepare('INSERT INTO node_aliases (node_id, alias) VALUES (?, ?)'),
-    insSearch: db.prepare(
-      'INSERT INTO search (node_id, name, aliases, description) VALUES (?, ?, ?, ?)',
-    ),
-    insEdge: db.prepare(
-      'INSERT OR REPLACE INTO edges (id, source_id, type, target_ref, target_id, confidence, status, attrs_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    ),
-    insEvidence: db.prepare(
-      'INSERT INTO evidence (owner_kind, owner_id, source_type, locator_json, excerpt, stance, extractor_json, extracted_at, run, validated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    ),
-    insFile: db.prepare('INSERT OR REPLACE INTO files (path, hash) VALUES (?, ?)'),
-    setMeta: db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)'),
-  };
-
-  const addEvidence = (kind: 'node' | 'edge', ownerId: string, ev: Evidence): void => {
-    stmts.insEvidence.run(
-      kind,
-      ownerId,
-      ev.source_type,
-      canonicalJson(ev.locator ?? {}),
-      asTextOrNull(ev.excerpt) ?? '',
-      ev.stance ?? 'supports',
-      ev.extractor ? canonicalJson(ev.extractor) : null,
-      asTextOrNull(ev.extracted_at),
-      asTextOrNull(ev.run),
-      asTextOrNull(ev.validated_by),
-    );
-  };
-
-  const removeRows = (rel: string): void => {
-    const owners = stmts.nodeIdsForFile.all(rel) as { id: string }[];
-    for (const { id } of owners) {
-      stmts.delEdgeEvidence.run(id);
-      stmts.delNodeEvidence.run(id);
-      stmts.delEdges.run(id);
-      stmts.delAliases.run(id);
-      stmts.delSearch.run(id);
-      stmts.delNode.run(id);
-    }
-    stmts.delFile.run(rel);
-  };
-
-  const indexOne = (rel: string, abs: string, hash: string): void => {
-    const node: GraphNode = readNodeFile(abs);
-    removeRows(rel);
-    stmts.insNode.run(
-      node.id,
-      node.type,
-      node.name,
-      node.status,
-      node.description,
-      node.schema_version,
-      rel,
-    );
-    for (const alias of node.aliases) stmts.insAlias.run(node.id, alias);
-    stmts.insSearch.run(node.id, node.name, node.aliases.join(' '), node.description);
-    for (const ev of node.evidence) addEvidence('node', node.id, ev);
-    const seen = new Set<string>();
-    for (const edge of node.edges) {
-      const id = edgeId(edge.type, node.id, edge.target);
-      if (seen.has(id)) continue; // duplicate (type, target) inside one file
-      seen.add(id);
-      stmts.insEdge.run(
-        id,
-        node.id,
-        edge.type,
-        edge.target,
-        targetIdOf(edge.target),
-        edge.confidence,
-        edge.status,
-        edge.attrs && Object.keys(edge.attrs).length > 0 ? canonicalJson(edge.attrs) : null,
-      );
-      for (const ev of edge.evidence) addEvidence('edge', id, ev);
-    }
-    stmts.insFile.run(rel, hash);
-  };
-
-  const removeTx = db.transaction(removeRows);
-  const indexTx = db.transaction(indexOne);
-
-  for (const rel of toRemove) removeTx(rel);
-  for (const [rel, f] of toIndex) indexTx(rel, f.abs, f.hash);
-  stmts.setMeta.run('built_at', new Date().toISOString());
-
-  return { indexed: toIndex.length, removed: toRemove.length, total: disk.size };
-}
-
-// ---------------------------------------------------------------------------
-// buildIndex
-// ---------------------------------------------------------------------------
-
-/**
- * Build or refresh .untacit/index.db. Default is incremental (hash diff);
- * `full` drops everything and reingests every node file.
- */
-export function buildIndex(
-  repoRoot: string,
-  opts?: BuildIndexOptions,
-): { indexed: number; removed: number; total: number } {
-  const db = openIndexDb(repoRoot);
-  try {
-    if (opts?.full) {
-      dropSchema(db);
-      createSchema(db);
-    }
-    return syncIndex(db, repoRoot);
-  } finally {
-    db.close();
-  }
-}
+export type { EdgeRow } from './rows.js';
+export type { BuildIndexOptions } from './build.js';
+export { buildIndex, checkpointIndex, indexStaleness } from './build.js';
+export type { EmbeddingUpdateResult } from './embeddings-store.js';
 
 /**
  * Refresh the derived index and its node embeddings in one shot: incremental
@@ -442,63 +75,6 @@ export async function buildEmbeddings(
     return { ...result, computed: result.computed + facets.computed };
   } finally {
     index.close();
-  }
-}
-
-/**
- * Flatten the index file for read-only distribution (docs/06 §4.6): fold the
- * WAL back into the main file and switch to the DELETE journal so the .db can
- * be shipped alone (serverless bundles) and opened with `openReadonly`.
- */
-/**
- * Read-only freshness report of the derived index against the node files on
- * disk (for diagnostics like `untacit doctor`). Never creates or mutates the
- * database file itself: a missing .untacit/index.db reports `exists: false`
- * with every file pending, instead of building one as openIndexDb would.
- * (Caveat: opening a WAL-mode database read-only may still create the empty
- * -shm/-wal sidecars — a SQLite requirement — and can throw on a read-only
- * filesystem; callers surface that as a diagnostic, not a crash.)
- */
-export function indexStaleness(repoRoot: string): {
-  exists: boolean;
-  stale: number;
-  removed: number;
-  total: number;
-} {
-  const disk = new Map<string, string>();
-  for (const abs of listNodeFiles(repoRoot)) {
-    disk.set(toRepoRel(repoRoot, abs), sha1(readFileSync(abs)));
-  }
-
-  const dbPath = indexDbPath(repoRoot);
-  if (!existsSync(dbPath)) {
-    return { exists: false, stale: disk.size, removed: 0, total: disk.size };
-  }
-
-  const db = new Database(dbPath, { readonly: true, fileMustExist: true });
-  try {
-    const known = new Map<string, string>();
-    for (const row of db.prepare('SELECT path, hash FROM files').all() as {
-      path: string;
-      hash: string;
-    }[]) {
-      known.set(row.path, row.hash);
-    }
-    const stale = [...disk.entries()].filter(([rel, hash]) => known.get(rel) !== hash).length;
-    const removed = [...known.keys()].filter((rel) => !disk.has(rel)).length;
-    return { exists: true, stale, removed, total: disk.size };
-  } finally {
-    db.close();
-  }
-}
-
-export function checkpointIndex(repoRoot: string): void {
-  const db = openIndexDb(repoRoot);
-  try {
-    db.pragma('wal_checkpoint(TRUNCATE)');
-    db.pragma('journal_mode = DELETE');
-  } finally {
-    db.close();
   }
 }
 
@@ -935,281 +511,45 @@ export class GraphIndex {
   }
 
   // -------------------------------------------------------------------------
-  // Node embeddings (docs/03 §3): derived vectors, incremental by content hash
+  // Node embeddings (docs/03 §3) — delegates to embeddings-store.ts
   // -------------------------------------------------------------------------
 
-  /**
-   * Bring the `embeddings` table up to date with the current provider:
-   * re-embeds only nodes whose embedded text ("type name aliases description")
-   * or provider changed, and drops vectors of vanished nodes. Safe to call on
-   * every read path — when nothing changed it costs one table scan.
-   */
+  /** See {@link updateEmbeddings} in embeddings-store.ts. */
   async updateEmbeddings(provider: EmbeddingProvider): Promise<EmbeddingUpdateResult> {
-    // Vectors of vanished nodes go first (any provider). Other providers'
-    // live vectors are kept: the table is keyed by (node_id, provider), so
-    // switching providers back and forth never throws away a warm cache.
-    const removed =
-      this.db
-        .prepare('DELETE FROM embeddings WHERE node_id NOT IN (SELECT id FROM nodes)')
-        .run().changes ?? 0;
-
-    const known = new Map<string, string>();
-    for (const row of this.db
-      .prepare('SELECT node_id, hash FROM embeddings WHERE provider = ?')
-      .all(provider.name) as { node_id: string; hash: string }[]) {
-      known.set(row.node_id, row.hash);
-    }
-
-    const stale: { id: string; text: string; hash: string }[] = [];
-    for (const { id, text } of this.embeddingTexts()) {
-      const hash = embeddingHash(provider.name, text);
-      if (known.get(id) !== hash) stale.push({ id, text, hash });
-    }
-
-    if (stale.length > 0) {
-      const vectors = await provider.embed(
-        stale.map((s) => s.text),
-        'passage',
-      );
-      if (vectors.length !== stale.length) {
-        throw new Error(
-          `Embedding provider "${provider.name}" returned ${vectors.length} vectors for ${stale.length} texts`,
-        );
-      }
-      const upsert = this.db.prepare(
-        'INSERT OR REPLACE INTO embeddings (node_id, provider, hash, dims, vector) VALUES (?, ?, ?, ?, ?)',
-      );
-      const tx = this.db.transaction(() => {
-        stale.forEach((s, i) => {
-          const vector = vectors[i]!;
-          // Never cache an empty vector under a valid content hash — it
-          // would look fresh forever and poison the cache.
-          if (vector.length === 0) return;
-          upsert.run(s.id, provider.name, s.hash, vector.length, encodeVector(vector));
-        });
-      });
-      tx();
-    }
-
-    const total = (
-      this.db
-        .prepare('SELECT COUNT(*) AS c FROM embeddings WHERE provider = ?')
-        .get(provider.name) as { c: number }
-    ).c;
-    return { provider: provider.name, computed: stale.length, removed, total };
+    return updateEmbeddings(this.db, provider);
   }
 
-  /**
-   * Embedding-cache coverage for a provider: cached vectors vs node count.
-   * Joined against `nodes` because reindexing does not purge vectors of
-   * deleted nodes (updateEmbeddings does) — orphans must not count as
-   * coverage while new nodes sit unembedded.
-   */
+  /** See {@link embeddingCoverage} in embeddings-store.ts. */
   embeddingCoverage(providerName: string): { embedded: number; nodes: number } {
-    const embedded = (
-      this.db
-        .prepare(
-          'SELECT COUNT(*) AS c FROM embeddings e JOIN nodes n ON n.id = e.node_id WHERE e.provider = ?',
-        )
-        .get(providerName) as { c: number }
-    ).c;
-    const nodes = (this.db.prepare('SELECT COUNT(*) AS c FROM nodes').get() as { c: number }).c;
-    return { embedded, nodes };
+    return embeddingCoverage(this.db, providerName);
   }
 
-  /**
-   * Cached node vectors for a provider (node id → vector), restricted to
-   * nodes still present. This is what the resolver's fuzzy match consumes.
-   */
+  /** See {@link nodeVectors} in embeddings-store.ts. */
   nodeVectors(providerName: string): Map<string, number[]> {
-    const rows = this.db
-      .prepare(
-        'SELECT e.node_id AS id, e.vector AS vector FROM embeddings e JOIN nodes n ON n.id = e.node_id WHERE e.provider = ?',
-      )
-      .all(providerName) as { id: string; vector: Buffer }[];
-    return new Map(rows.map((row) => [row.id, decodeVector(row.vector)]));
+    return nodeVectors(this.db, providerName);
   }
 
-  /**
-   * Bring the `embeddings_facets` table up to date: facet 0 is
-   * "type name aliases", facets 1..n are description segments
-   * (segmentDescription). Incremental per node by joint content hash — a
-   * node re-embeds all its facets only when any facet text (or the facet
-   * count) changed. This is the deliberately compute-heavier sibling of
-   * `updateEmbeddings` (docs/03 §6.1): several vectors per node instead of
-   * one mean-pooled vector, so a query can match one sentence of a long
-   * description at full strength instead of being diluted across the pool.
-   */
+  /** See {@link updateFacetEmbeddings} in embeddings-store.ts. */
   async updateFacetEmbeddings(provider: EmbeddingProvider): Promise<EmbeddingUpdateResult> {
-    const removed =
-      this.db
-        .prepare('DELETE FROM embeddings_facets WHERE node_id NOT IN (SELECT id FROM nodes)')
-        .run().changes ?? 0;
-
-    // Stored joint hash per node: sha1 over the per-facet hashes in order.
-    const known = new Map<string, string>();
-    const knownRows = this.db
-      .prepare(
-        'SELECT node_id, hash FROM embeddings_facets WHERE provider = ? ORDER BY node_id, facet',
-      )
-      .all(provider.name) as { node_id: string; hash: string }[];
-    const grouped = new Map<string, string[]>();
-    for (const row of knownRows) {
-      const list = grouped.get(row.node_id);
-      if (list === undefined) grouped.set(row.node_id, [row.hash]);
-      else list.push(row.hash);
-    }
-    for (const [id, hashes] of grouped) known.set(id, sha1(hashes.join('|')));
-
-    const stale: { id: string; facets: { text: string; hash: string }[] }[] = [];
-    for (const { id, facets } of this.nodeFacetTexts()) {
-      const withHashes = facets.map((text) => ({ text, hash: embeddingHash(provider.name, text) }));
-      const joint = sha1(withHashes.map((f) => f.hash).join('|'));
-      if (known.get(id) !== joint) stale.push({ id, facets: withHashes });
-    }
-
-    if (stale.length > 0) {
-      const texts = stale.flatMap((s) => s.facets.map((f) => f.text));
-      const vectors = await provider.embed(texts, 'passage');
-      if (vectors.length !== texts.length) {
-        throw new Error(
-          `Embedding provider "${provider.name}" returned ${vectors.length} vectors for ${texts.length} facet texts`,
-        );
-      }
-      const del = this.db.prepare(
-        'DELETE FROM embeddings_facets WHERE node_id = ? AND provider = ?',
-      );
-      const ins = this.db.prepare(
-        'INSERT OR REPLACE INTO embeddings_facets (node_id, provider, facet, hash, dims, vector) VALUES (?, ?, ?, ?, ?, ?)',
-      );
-      const tx = this.db.transaction(() => {
-        let cursor = 0;
-        for (const s of stale) {
-          del.run(s.id, provider.name);
-          s.facets.forEach((f, facetIdx) => {
-            const vector = vectors[cursor]!;
-            cursor += 1;
-            // Same rule as updateEmbeddings: an empty vector must never look
-            // fresh under a valid content hash.
-            if (vector.length === 0) return;
-            ins.run(s.id, provider.name, facetIdx, f.hash, vector.length, encodeVector(vector));
-          });
-        }
-      });
-      tx();
-    }
-
-    const total = (
-      this.db
-        .prepare('SELECT COUNT(DISTINCT node_id) AS c FROM embeddings_facets WHERE provider = ?')
-        .get(provider.name) as { c: number }
-    ).c;
-    return { provider: provider.name, computed: stale.length, removed, total };
+    return updateFacetEmbeddings(this.db, provider);
   }
 
-  /**
-   * Late-interaction semantic search (ColBERT-style MaxSim over the facet
-   * vectors, docs/03 §6.1): the query embeds once, every node scores as the
-   * MAXIMUM cosine over its facet vectors — a node whose *one* relevant
-   * sentence matches the query ranks as if that sentence were its whole
-   * text, instead of the signal drowning in mean-pooled prose. Costs
-   * (facets × nodes) cosines per query; empty when the facet table has no
-   * matching vectors.
-   */
+  /** See {@link lateInteractionSearch} in embeddings-store.ts. */
   async lateInteractionSearch(
     query: string,
     provider: EmbeddingProvider,
     opts?: { types?: NodeType[]; limit?: number },
   ): Promise<SearchResult[]> {
-    const limit = opts?.limit ?? 20;
-    const types =
-      opts?.types !== undefined && opts.types.length > 0 ? new Set<string>(opts.types) : undefined;
-    const [queryVec] = await provider.embed([query], 'query');
-    if (queryVec === undefined || !queryVec.some((v) => v !== 0)) return [];
-
-    const rows = this.db
-      .prepare(
-        `SELECT n.id AS id, n.type AS type, n.name AS name, n.description AS description, f.vector AS vector
-         FROM embeddings_facets f JOIN nodes n ON n.id = f.node_id
-         WHERE f.provider = ? AND f.dims = ?
-         ORDER BY n.id, f.facet`,
-      )
-      .all(provider.name, queryVec.length) as {
-      id: string;
-      type: string;
-      name: string;
-      description: string;
-      vector: Buffer;
-    }[];
-
-    const best = new Map<string, SearchResult>();
-    for (const row of rows) {
-      if (types !== undefined && !types.has(row.type)) continue;
-      const score = cosineSimilarity(queryVec, decodeVector(row.vector));
-      const entry = best.get(row.id);
-      if (entry === undefined) {
-        best.set(row.id, {
-          id: row.id,
-          type: row.type as NodeType,
-          name: row.name,
-          summary: firstLine(row.description),
-          score,
-        });
-      } else if (score > entry.score) {
-        entry.score = score;
-      }
-    }
-    return [...best.values()]
-      .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
-      .slice(0, limit);
+    return lateInteractionSearch(this.db, query, provider, opts);
   }
 
-  /**
-   * k-NN over the cached node vectors (cosine, linear scan). At v1 scale
-   * (thousands of nodes) a scan is milliseconds; sqlite-vec remains the
-   * planned upgrade path if graphs outgrow it (docs/03 §3).
-   */
+  /** See {@link semanticSearch} in embeddings-store.ts. */
   async semanticSearch(
     query: string,
     provider: EmbeddingProvider,
     opts?: { types?: NodeType[]; limit?: number },
   ): Promise<SearchResult[]> {
-    const limit = opts?.limit ?? 20;
-    const types =
-      opts?.types !== undefined && opts.types.length > 0 ? new Set<string>(opts.types) : undefined;
-    const [queryVec] = await provider.embed([query], 'query');
-    // A missing or zero-norm query vector (e.g. text that normalizes to
-    // nothing) has no meaningful neighbors — cosine would be 0 everywhere
-    // and the "top k" would be arbitrary nodes.
-    if (queryVec === undefined || !queryVec.some((v) => v !== 0)) return [];
-
-    const rows = this.db
-      .prepare(
-        `SELECT n.id AS id, n.type AS type, n.name AS name, n.description AS description, e.vector AS vector
-         FROM embeddings e JOIN nodes n ON n.id = e.node_id
-         WHERE e.provider = ? AND e.dims = ?`,
-      )
-      .all(provider.name, queryVec.length) as {
-      id: string;
-      type: string;
-      name: string;
-      description: string;
-      vector: Buffer;
-    }[];
-
-    const scored: SearchResult[] = [];
-    for (const row of rows) {
-      if (types !== undefined && !types.has(row.type)) continue;
-      scored.push({
-        id: row.id,
-        type: row.type as NodeType,
-        name: row.name,
-        summary: firstLine(row.description),
-        score: cosineSimilarity(queryVec, decodeVector(row.vector)),
-      });
-    }
-    scored.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
-    return scored.slice(0, limit);
+    return semanticSearch(this.db, query, provider, opts);
   }
 
   /**
@@ -1324,50 +664,6 @@ export class GraphIndex {
   // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
-
-  /**
-   * Embedded text per node, composed from index rows exactly like the
-   * resolver composes it from GraphNodes (embeddingTextForNode), so cached
-   * vectors and on-the-fly vectors agree.
-   */
-  private embeddingTexts(): { id: string; text: string }[] {
-    const nodes = this.db
-      .prepare('SELECT id, type, name, description FROM nodes ORDER BY id')
-      .all() as { id: string; type: string; name: string; description: string }[];
-    const aliasStmt = this.db.prepare(
-      'SELECT alias FROM node_aliases WHERE node_id = ? ORDER BY rowid',
-    );
-    return nodes.map((row) => {
-      const aliases = (aliasStmt.all(row.id) as { alias: string }[]).map((a) => a.alias);
-      return {
-        id: row.id,
-        text: embeddingTextForNode({
-          type: row.type as NodeType,
-          name: row.name,
-          aliases,
-          description: row.description,
-        }),
-      };
-    });
-  }
-
-  /**
-   * Facet texts per node for late interaction: facet 0 = "type name aliases"
-   * (what the node IS), facets 1..n = description segments (what it SAYS).
-   */
-  private nodeFacetTexts(): { id: string; facets: string[] }[] {
-    const nodes = this.db
-      .prepare('SELECT id, type, name, description FROM nodes ORDER BY id')
-      .all() as { id: string; type: string; name: string; description: string }[];
-    const aliasStmt = this.db.prepare(
-      'SELECT alias FROM node_aliases WHERE node_id = ? ORDER BY rowid',
-    );
-    return nodes.map((row) => {
-      const aliases = (aliasStmt.all(row.id) as { alias: string }[]).map((a) => a.alias);
-      const nameFacet = [row.type, row.name, ...aliases].join(' ').trim();
-      return { id: row.id, facets: [nameFacet, ...segmentDescription(row.description)] };
-    });
-  }
 
   private evidenceRows(kind: 'node' | 'edge', ownerId: string): Evidence[] {
     const rows = this.db
