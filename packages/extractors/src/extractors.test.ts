@@ -17,6 +17,8 @@ import {
   processAnswer,
   rejectProposal,
   resolveVerification,
+  resumeInterview,
+  serializeInterview,
   startInterview,
   verificationTargets,
 } from './interview/index.js';
@@ -288,6 +290,51 @@ describe('extractor-interview: turn loop', () => {
     const turn = await processAnswer(llm, state, 'Sí, así es.');
     expect(turn.finished).toBe(true);
     expect(turn.reply).toContain('1 afirmación por confirmar o refutar');
+  });
+});
+
+describe('extractor-interview: session persistence (--resume)', () => {
+  it('serializes without the transcript and resumes with a recap turn', async () => {
+    const llm = new MockLlmClient([{ ...TURN_BATCH, reply: '¿Algo más?', topic_done: false }]);
+    const state = startInterview('int-002', 'administracion', {
+      script: ['¿Quién lleva la facturación?', '¿Qué pasa si falla el cobro?'],
+    });
+    await processAnswer(llm, state, 'DATO-PRIVADO: la facturación la hago yo entera.');
+    acceptProposal(state, 'p1');
+
+    const persisted = serializeInterview(state, NOW);
+    expect(persisted.version).toBe(1);
+    expect(persisted.savedAt).toBe(NOW.toISOString());
+    const json = JSON.stringify(persisted);
+    // Privacy (docs/05): the conversation itself never touches disk — no
+    // transcript key, and the interviewee's literal answer is absent.
+    expect(json).not.toContain('transcript');
+    expect(json).not.toContain('DATO-PRIVADO');
+
+    const resumed = resumeInterview(persisted);
+    expect(resumed.speakerRole).toBe('administracion');
+    expect(resumed.scriptIndex).toBe(state.scriptIndex);
+    expect(resumed.proposals.map((p) => p.status)).toEqual(state.proposals.map((p) => p.status));
+    expect(resumed.transcript).toHaveLength(1);
+    expect(resumed.transcript[0]!.speaker).toBe('agent');
+    expect(resumed.transcript[0]!.text).toContain('1 propuesta(s) aceptada(s)');
+    // Re-anchored on the question that was on the table.
+    expect(resumed.transcript[0]!.text).toContain('¿Quién lleva la facturación?');
+  });
+
+  it('a resumed session keeps answering turns over the recap context', async () => {
+    const llm = new MockLlmClient([
+      { ...TURN_BATCH, reply: '', topic_done: false },
+      { ...EMPTY_TURN, reply: 'Anotado.', topic_done: true },
+    ]);
+    const state = startInterview('int-003', 'administracion', { script: ['¿P1?', '¿P2?'] });
+    await processAnswer(llm, state, 'Primera respuesta.');
+
+    const resumed = resumeInterview(serializeInterview(state, NOW));
+    const turn = await processAnswer(llm, resumed, 'Segunda respuesta tras retomar.');
+    expect(turn.reply).toBe('Anotado. ¿P2?');
+    expect(resumed.turn).toBe(state.turn + 1);
+    expect(llm.requests[1]!.prompt).toContain('Retomamos la entrevista');
   });
 });
 

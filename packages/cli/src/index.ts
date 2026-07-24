@@ -1,10 +1,10 @@
 /**
  * untacit CLI (docs/03 §2): init | import | index | embed | stats | search |
- * diff | conflicts | extract | interview | serve-mcp | update. Thin
- * composition over @untacit/core and @untacit/extractors.
+ * diff | conflicts | doctor | extract | interview | serve-mcp | update.
+ * Thin composition over @untacit/core and @untacit/extractors.
  */
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
@@ -14,12 +14,14 @@ import {
   GraphIndex,
   buildEmbeddings,
   buildIndex,
+  configPath,
   createEmbeddingProvider,
   diffRefs,
   diffWorkingTree,
   formatDiffText,
   importBatch,
   initGraphRepo,
+  interviewSessionPath,
   listRuns,
   loadConfig,
 } from '@untacit/core';
@@ -27,8 +29,24 @@ import type { EmbeddingProvider, EmbeddingsConfig } from '@untacit/core';
 import { Command } from 'commander';
 import pc from 'picocolors';
 
+import { EXIT_FINDINGS, emitJson, stdinIsInteractive, stdoutIsInteractive, unicodeOk } from './output.js';
+import { createInterviewUi } from './ui.js';
+
+/**
+ * Resolve --graph and refuse a directory that is not a graph repo. Without
+ * this, GraphIndex.open would fabricate an empty index at the typo'd path
+ * and e.g. `conflicts --json` would report a clean graph (exit 0) for a
+ * repo that was never looked at — poison under the "exit 2 = findings"
+ * contract.
+ */
 function graphRoot(opts: { graph?: string }): string {
-  return resolve(opts.graph ?? process.cwd());
+  const dir = resolve(opts.graph ?? process.cwd());
+  if (!existsSync(configPath(dir))) {
+    throw new Error(
+      `no untacit.config.json at ${dir} — not a graph repo (create one with \`untacit init ${dir}\`, or fix --graph)`,
+    );
+  }
+  return dir;
 }
 
 /**
@@ -93,10 +111,11 @@ export function buildProgram(): Command {
     .argument('<dir>', 'directory for the new graph repo')
     .option('--language <lang>', 'content language of the graph', 'es')
     .option('--no-git', 'skip git initialization')
-    .description('Create an empty graph repo (config, layout, .gitignore, git init)')
-    .action((dir: string, opts: { language: string; git: boolean }) => {
+    .option('--no-agents-md', 'skip the AGENTS.md agent guide in the new repo')
+    .description('Create an empty graph repo (config, layout, .gitignore, AGENTS.md, git init)')
+    .action((dir: string, opts: { language: string; git: boolean; agentsMd: boolean }) => {
       const target = resolve(dir);
-      initGraphRepo(target, { language: opts.language, git: opts.git });
+      initGraphRepo(target, { language: opts.language, git: opts.git, agentsMd: opts.agentsMd });
       console.log(`${pc.green('initialized')} graph repo at ${target}`);
     });
 
@@ -110,8 +129,9 @@ export function buildProgram(): Command {
       '--branch [name]',
       'commit the run on a new branch of the graph repo (extraction-as-PR; default name run/<run_id>)',
     )
+    .option('--json', 'print the import result as JSON to stdout', false)
     .description('Validate, resolve and materialize an extraction batch into the graph repo')
-    .action(async (batchFile: string, opts: { graph: string; commit: boolean; reindex: boolean; branch?: string | boolean }) => {
+    .action(async (batchFile: string, opts: { graph: string; commit: boolean; reindex: boolean; branch?: string | boolean; json: boolean }) => {
       const repo = graphRoot(opts);
       const json = JSON.parse(readFileSync(resolve(batchFile), 'utf8')) as unknown;
       const branch = runBranchName(opts.branch, json);
@@ -120,6 +140,10 @@ export function buildProgram(): Command {
         reindex: opts.reindex,
         ...(branch !== undefined ? { branch } : {}),
       });
+      if (opts.json) {
+        emitJson(result);
+        return;
+      }
 
       for (const issue of result.rejections) {
         console.log(`${pc.yellow('rejected')} ${issue.path}: ${issue.message}`);
@@ -154,20 +178,31 @@ export function buildProgram(): Command {
     .requiredOption('--graph <dir>', 'graph repo directory')
     .option('--full', 'drop and rebuild from scratch', false)
     .option('--embeddings', 'also refresh the node-embedding cache', false)
+    .option('--json', 'print the index result as JSON to stdout', false)
     .description('Rebuild the derived SQLite index from the node files')
-    .action(async (opts: { graph: string; full: boolean; embeddings: boolean }) => {
+    .action(async (opts: { graph: string; full: boolean; embeddings: boolean; json: boolean }) => {
       const repo = graphRoot(opts);
       const result = buildIndex(repo, { full: opts.full });
-      console.log(`indexed ${result.indexed}, removed ${result.removed}, total ${result.total} nodes`);
+      if (!opts.json) {
+        console.log(`indexed ${result.indexed}, removed ${result.removed}, total ${result.total} nodes`);
+      }
+      let embeddings = null;
       if (opts.embeddings) {
         const provider = await providerFor(repo, {});
         if (provider === null) {
-          console.log(pc.yellow('embeddings disabled (config "none", or "auto" without a local model installed)'));
-          return;
+          const note = 'embeddings disabled (config "none", or "auto" without a local model installed)';
+          if (opts.json) console.error(note);
+          else console.log(pc.yellow(note));
+        } else {
+          embeddings = await buildEmbeddings(repo, provider);
+          if (!opts.json) {
+            console.log(
+              `embeddings: ${embeddings.computed} computed, ${embeddings.removed} removed, ${embeddings.total} total (${embeddings.provider})`,
+            );
+          }
         }
-        const emb = await buildEmbeddings(repo, provider);
-        console.log(`embeddings: ${emb.computed} computed, ${emb.removed} removed, ${emb.total} total (${emb.provider})`);
       }
+      if (opts.json) emitJson({ ...result, embeddings });
     });
 
   program
@@ -175,15 +210,26 @@ export function buildProgram(): Command {
     .requiredOption('--graph <dir>', 'graph repo directory')
     .option('--provider <p>', 'embedding provider: auto | hash | transformers | none')
     .option('--model <id>', 'model id for the transformers provider')
+    .option('--json', 'print the embedding result as JSON to stdout', false)
     .description('Refresh the node-embedding cache of the derived index (incremental by content hash)')
-    .action(async (opts: { graph: string; provider?: string; model?: string }) => {
+    .action(async (opts: { graph: string; provider?: string; model?: string; json: boolean }) => {
       const repo = graphRoot(opts);
       const provider = await providerFor(repo, opts);
       if (provider === null) {
-        console.log(pc.yellow('embeddings disabled (provider "none", or "auto" without a local model installed)'));
+        const note = 'embeddings disabled (provider "none", or "auto" without a local model installed)';
+        if (opts.json) {
+          console.error(note);
+          emitJson({ disabled: true });
+        } else {
+          console.log(pc.yellow(note));
+        }
         return;
       }
       const result = await buildEmbeddings(repo, provider);
+      if (opts.json) {
+        emitJson(result);
+        return;
+      }
       console.log(
         `embeddings: ${result.computed} computed, ${result.removed} removed, ${result.total} total (${result.provider})`,
       );
@@ -192,11 +238,20 @@ export function buildProgram(): Command {
   program
     .command('stats')
     .requiredOption('--graph <dir>', 'graph repo directory')
+    .option('--json', 'print the metrics as JSON to stdout', false)
     .description('Graph metrics: nodes/edges by type, statuses, conflicts, review queue size')
-    .action((opts: { graph: string }) => {
+    .action((opts: { graph: string; json: boolean }) => {
       const index = GraphIndex.open(graphRoot(opts));
       try {
         const s = index.stats();
+        if (opts.json) {
+          const runs = listRuns(graphRoot(opts));
+          emitJson({
+            ...s,
+            runs: { count: runs.length, last: runs.length > 0 ? runs[runs.length - 1]!.id : null },
+          });
+          return;
+        }
         console.log(pc.bold(`${s.nodes_total} nodes, ${s.edges_total} edges, ${s.evidence_total} evidence`));
         console.log('nodes by type:');
         for (const [type, count] of Object.entries(s.nodes_by_type).sort()) {
@@ -230,6 +285,7 @@ export function buildProgram(): Command {
     .option('--mode <mode>', 'fts | semantic | hybrid', 'fts')
     .option('--provider <p>', 'embedding provider override: auto | hash | transformers | none')
     .option('--model <id>', 'model id for the transformers provider')
+    .option('--json', 'print the results as JSON to stdout', false)
     .description('Search nodes: full-text (FTS5), semantic (embeddings) or hybrid (RRF fusion)')
     .action(
       async (
@@ -241,6 +297,7 @@ export function buildProgram(): Command {
           mode: string;
           provider?: string;
           model?: string;
+          json: boolean;
         },
       ) => {
         if (!['fts', 'semantic', 'hybrid'].includes(opts.mode)) {
@@ -259,11 +316,14 @@ export function buildProgram(): Command {
           } else {
             const provider = await providerFor(repo, opts);
             if (provider === null && opts.mode === 'semantic') {
-              console.log(
-                pc.yellow(
-                  'semantic search needs an embedding provider — pass --provider hash|transformers or set `embeddings` in untacit.config.json',
-                ),
-              );
+              const note =
+                'semantic search needs an embedding provider — pass --provider hash|transformers or set `embeddings` in untacit.config.json';
+              if (opts.json) {
+                console.error(note);
+                emitJson([]);
+              } else {
+                console.log(pc.yellow(note));
+              }
               return;
             }
             if (provider !== null) await index.updateEmbeddings(provider);
@@ -271,6 +331,10 @@ export function buildProgram(): Command {
               opts.mode === 'semantic'
                 ? await index.semanticSearch(query, provider!, searchOpts)
                 : await index.hybridSearch(query, provider, searchOpts);
+          }
+          if (opts.json) {
+            emitJson(results);
+            return;
           }
           if (results.length === 0) {
             console.log(pc.dim('no results'));
@@ -288,11 +352,19 @@ export function buildProgram(): Command {
   program
     .command('conflicts')
     .requiredOption('--graph <dir>', 'graph repo directory')
-    .description('Open contradictions with their opposing evidence')
-    .action((opts: { graph: string }) => {
+    .option('--json', 'print the conflicts as JSON to stdout', false)
+    .description('Open contradictions with their opposing evidence (exit code 2 when any are open)')
+    .action((opts: { graph: string; json: boolean }) => {
       const index = GraphIndex.open(graphRoot(opts));
       try {
         const conflicts = index.conflicts();
+        // Findings, not an error: scripts/CI can branch on `untacit conflicts`
+        // without parsing output. exitCode (not process.exit) lets stdout flush.
+        if (conflicts.length > 0) process.exitCode = EXIT_FINDINGS;
+        if (opts.json) {
+          emitJson(conflicts);
+          return;
+        }
         if (conflicts.length === 0) {
           console.log(pc.green('no open conflicts'));
           return;
@@ -316,11 +388,39 @@ export function buildProgram(): Command {
     .argument('[refA]', 'older git ref of the graph repo')
     .argument('[refB]', 'newer git ref (default: working tree vs refA/HEAD)')
     .requiredOption('--graph <dir>', 'graph repo directory')
+    .option('--json', 'print the diff as JSON to stdout', false)
     .description('Drift between two refs of the graph repo, in ontology terms')
-    .action((refA: string | undefined, refB: string | undefined, opts: { graph: string }) => {
+    .action((refA: string | undefined, refB: string | undefined, opts: { graph: string; json: boolean }) => {
       const repo = graphRoot(opts);
       const diff = refA && refB ? diffRefs(repo, refA, refB) : diffWorkingTree(repo, refA ?? 'HEAD');
+      if (opts.json) {
+        emitJson(diff);
+        return;
+      }
       console.log(formatDiffText(diff));
+    });
+
+  program
+    .command('doctor')
+    .option('--graph <dir>', 'graph repo to inspect (adds config/git/index/embeddings checks)')
+    .option('--json', 'print the checks as JSON to stdout', false)
+    .option('--offline', 'skip all network access (no update check)', false)
+    .description('Diagnose the environment: git, claude engine, install freshness and, with --graph, the graph repo (exit code 2 on failures)')
+    .action(async (opts: { graph?: string; json: boolean; offline: boolean }) => {
+      const { defaultDoctorDeps, doctorChecks, formatDoctorText } = await import('./doctor.js');
+      const checks = await doctorChecks(
+        {
+          ...(opts.graph !== undefined ? { graph: resolve(opts.graph) } : {}),
+          offline: opts.offline,
+        },
+        await defaultDoctorDeps(),
+      );
+      if (checks.some((c) => c.status === 'fail')) process.exitCode = EXIT_FINDINGS;
+      if (opts.json) {
+        emitJson({ ok: !checks.some((c) => c.status === 'fail'), checks });
+        return;
+      }
+      console.log(formatDoctorText(checks, unicodeOk()));
     });
 
   const extract = program
@@ -539,18 +639,33 @@ export function buildProgram(): Command {
       'print coverage gaps and verification targets as JSON and exit (no LLM call)',
       false,
     )
+    .option('--resume', 'retomar una entrevista interrumpida de este graph repo (sin transcripción: solo rol, guion y propuestas)', false)
     .description(
       'Entrevista agéntica en terminal: guion desde huecos del grafo, triples en vivo con aceptar/rechazar, verificación cruzada (docs/03 §4.3)',
     )
-    .action(async (opts: { graph: string; role?: string; model?: string; gapsOnly: boolean }) => {
+    .action(async (opts: { graph: string; role?: string; model?: string; gapsOnly: boolean; resume: boolean }) => {
       const extractors = await import('@untacit/extractors');
       const repo = graphRoot(opts);
+      const sessionPath = interviewSessionPath(repo);
 
       // Validate the cheap preconditions before opening/reindexing the index.
       const role = opts.role?.trim() ?? '';
       if (!opts.gapsOnly) {
-        if (role === '') {
+        if (opts.resume && !existsSync(sessionPath)) {
+          throw new Error(
+            `no hay ninguna sesión de entrevista interrumpida en ${sessionPath} — arranca una nueva sin --resume`,
+          );
+        }
+        if (role === '' && !opts.resume) {
           throw new Error('--role es obligatorio (rol de la persona entrevistada, nunca su nombre)');
+        }
+        // Without a live stdin, rl.question never settles (EOF) or eats piped
+        // lines as prompt answers — either way the process would "succeed"
+        // silently having interviewed nobody. Fail loudly instead.
+        if (!stdinIsInteractive()) {
+          throw new Error(
+            'la entrevista es interactiva y stdin no es un terminal — ejecútala en un TTY (o usa --gaps-only para la parte sin LLM)',
+          );
         }
         const engine = extractors.claudeCodeAvailable();
         if (!engine.ok) {
@@ -573,28 +688,121 @@ export function buildProgram(): Command {
       }
 
       const llm = new extractors.ClaudeCodeLlmClient(opts.model !== undefined ? { model: opts.model } : {});
-      console.log(pc.dim(`${gaps.length} huecos detectados en el grafo; generando guion…`));
-      const script = await extractors.generateScript(llm, gaps);
-      const interviewId = `int-${Date.now().toString(36)}`;
-      const state = extractors.startInterview(interviewId, role, { script, verifications });
+      const ui = createInterviewUi({ tty: stdoutIsInteractive(), unicode: unicodeOk() });
+
+      let state: ReturnType<typeof extractors.startInterview>;
+      if (opts.resume) {
+        const persisted = JSON.parse(readFileSync(sessionPath, 'utf8')) as { version?: unknown };
+        if (persisted.version !== 1) {
+          throw new Error(
+            `versión de sesión desconocida en ${sessionPath} — bórrala o actualiza untacit (untacit update)`,
+          );
+        }
+        const snapshot = persisted as unknown as Parameters<typeof extractors.resumeInterview>[0];
+        if (role !== '' && role !== snapshot.state.speakerRole) {
+          throw new Error(
+            `la sesión guardada es del rol "${snapshot.state.speakerRole}" — retómala sin --role, o con ese mismo rol`,
+          );
+        }
+        state = extractors.resumeInterview(snapshot);
+        console.log(pc.dim(`sesión retomada (guardada ${snapshot.savedAt})`));
+      } else {
+        if (existsSync(sessionPath)) {
+          const confirm = createInterface({ input: process.stdin, output: process.stdout });
+          confirm.on('SIGINT', () => process.exit(130));
+          try {
+            const answer = (
+              await confirm.question(
+                pc.yellow(
+                  'hay una sesión de entrevista interrumpida en este grafo (retómala con --resume). ¿Empezar una nueva y descartarla? [s/N] ',
+                ),
+              )
+            )
+              .trim()
+              .toLowerCase();
+            if (!(answer === 's' || answer === 'si' || answer === 'sí')) {
+              console.log(pc.dim('sesión conservada — retómala con: untacit interview --resume --graph …'));
+              return;
+            }
+          } finally {
+            confirm.close();
+          }
+          rmSync(sessionPath, { force: true });
+        }
+        console.log(pc.dim(`${gaps.length} huecos detectados en el grafo`));
+        const spin = ui.spinner('generando guion');
+        let script: string[];
+        try {
+          script = await extractors.generateScript(llm, gaps);
+          spin.stop();
+        } catch (err) {
+          spin.stop();
+          throw err;
+        }
+        const interviewId = `int-${Date.now().toString(36)}`;
+        state = extractors.startInterview(interviewId, role, { script, verifications });
+      }
+
+      ui.banner(cliVersion(), repo, state.speakerRole);
+
+      // Save after every turn (atomic tmp+rename): a crash or Ctrl+C loses at
+      // most the answer in flight, and the generated script — an LLM spend —
+      // survives from the very first write. Transcript is never persisted.
+      const saveSession = (): void => {
+        mkdirSync(dirname(sessionPath), { recursive: true });
+        const tmp = `${sessionPath}.tmp`;
+        writeFileSync(tmp, `${JSON.stringify(extractors.serializeInterview(state), null, 2)}\n`, 'utf8');
+        renameSync(tmp, sessionPath);
+      };
+      // Delete only OUR session on success: a concurrent interview over the
+      // same graph may have overwritten the file, and its (resumable) work
+      // must not be swept away by this process closing.
+      const removeOwnSession = (): void => {
+        try {
+          const onDisk = JSON.parse(readFileSync(sessionPath, 'utf8')) as {
+            state?: { interviewId?: string };
+          };
+          if (onDisk.state?.interviewId !== state.interviewId) return;
+        } catch {
+          return;
+        }
+        rmSync(sessionPath, { force: true });
+      };
+      saveSession();
 
       const rl = createInterface({ input: process.stdin, output: process.stdout });
+      // Without a listener, readline swallows Ctrl+C between questions (raw
+      // mode): it just closes the interface, the in-flight LLM call keeps
+      // spending, and the next rl.question dies with a cryptic
+      // ERR_USE_AFTER_CLOSE. The session is saved after every turn, so an
+      // interrupt can exit cleanly and point at --resume.
+      rl.on('SIGINT', () => {
+        console.log(
+          `\n${pc.dim('entrevista interrumpida — la sesión está guardada; retómala con: untacit interview --resume --graph …')}`,
+        );
+        process.exit(130);
+      });
       try {
         // Cross-verification pass (docs/03 §4.3.5) before the open conversation.
-        for (const proposal of state.proposals.filter((p) => p.kind === 'verification')) {
+        // Only still-pending ones: a resumed session skips what was resolved.
+        for (const proposal of state.proposals.filter(
+          (p) => p.kind === 'verification' && p.status === 'proposed',
+        )) {
           const v = proposal.verification!;
           const answer = (
             await rl.question(
-              `${pc.yellow('verificar')} ${proposal.statement} (confianza ${v.confidence}) — [c]onfirmar / [r]efutar / ENTER salta: `,
+              `${pc.yellow(`${ui.mood('verifying')} verificar`)} ${proposal.statement} (confianza ${v.confidence}) — [c]onfirmar / [r]efutar / ENTER salta: `,
             )
           )
             .trim()
             .toLowerCase();
           const verdict = answer.startsWith('c') ? 'confirm' : answer.startsWith('r') ? 'refute' : 'skip';
           extractors.resolveVerification(state, proposal.id, verdict);
+          saveSession();
         }
 
-        console.log(`\n${pc.green('agente >')} ${state.transcript[0]!.text}`);
+        console.log('');
+        ui.agentSays(state.transcript[0]!.text);
         console.log(pc.dim('Responde al agente. ":fin" termina la sesión y guarda lo aceptado.\n'));
 
         for (;;) {
@@ -604,10 +812,14 @@ export function buildProgram(): Command {
 
           // A transient LLM failure must not kill the session: processAnswer
           // leaves the state untouched on error, so the user just retries.
+          // The spinner stops before anything else prints — it owns the line.
+          const spin = ui.spinner('pensando');
           let outcome: Awaited<ReturnType<typeof extractors.processAnswer>>;
           try {
             outcome = await extractors.processAnswer(llm, state, answer);
+            spin.stop();
           } catch (err) {
+            spin.stop();
             console.log(
               pc.yellow(
                 `error del LLM (${err instanceof Error ? err.message : String(err)}) — la sesión sigue: reintenta la respuesta o cierra con ":fin"`,
@@ -625,17 +837,23 @@ export function buildProgram(): Command {
             ).trim();
             if (selection.toLowerCase() === 'todo') {
               for (const p of outcome.proposals) extractors.acceptProposal(state, p.id);
+              ui.celebrate(outcome.proposals.length);
             } else if (selection !== '') {
+              let accepted = 0;
               for (const id of selection.split(/\s+/)) {
                 try {
                   extractors.acceptProposal(state, id);
+                  accepted++;
                 } catch (err) {
                   console.log(pc.yellow(err instanceof Error ? err.message : String(err)));
                 }
               }
+              ui.celebrate(accepted);
             }
           }
-          console.log(`${pc.green('agente >')} ${outcome.reply}\n`);
+          saveSession();
+          ui.agentSays(outcome.reply);
+          console.log('');
           if (outcome.finished) {
             console.log(pc.dim('El guion está cubierto; puedes seguir hablando o cerrar con ":fin".'));
           }
@@ -652,14 +870,24 @@ export function buildProgram(): Command {
           )
             .trim()
             .toLowerCase();
-          if (bulk === 's' || bulk === 'si' || bulk === 'sí') extractors.acceptAll(state);
+          if (bulk === 's' || bulk === 'si' || bulk === 'sí') {
+            ui.celebrate(extractors.acceptAll(state).length);
+          }
         }
       } finally {
+        // Belt and braces: whatever path leaves this block, the last state is
+        // on disk (the success paths below delete the file afterwards).
+        try {
+          saveSession();
+        } catch {
+          /* saving must never mask the original error */
+        }
         rl.close();
       }
 
       const batch = extractors.finishInterview(state);
       if (batch.nodes.length === 0 && batch.edges.length === 0) {
+        removeOwnSession();
         console.log(pc.dim('nada aceptado — la sesión no se importa'));
         return;
       }
@@ -674,9 +902,12 @@ export function buildProgram(): Command {
             `+${s.edges_created}/~${s.edges_updated} edges, +${s.evidence_added} evidence`,
         );
         if (imported.commit) console.log(pc.dim(`  commit ${imported.commit.slice(0, 10)}`));
+        // Only a successful close removes the resumable session.
+        removeOwnSession();
       } catch (err) {
         // The session cost a real conversation — never lose the batch to an
-        // import failure the user can fix and retry.
+        // import failure the user can fix and retry. The session file stays
+        // resumable too (--resume) in case they prefer to keep talking.
         const rescue = resolve(`untacit-batch-${batch.run_id}.json`);
         writeFileSync(rescue, `${JSON.stringify(batch, null, 2)}\n`, 'utf8');
         console.error(

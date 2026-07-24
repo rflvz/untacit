@@ -710,3 +710,52 @@ export function finishInterview(state: InterviewState, now = new Date()): Extrac
   );
   return batch;
 }
+
+// ---------------------------------------------------------------------------
+// Session persistence: resume an interrupted interview (CLI --resume)
+// ---------------------------------------------------------------------------
+
+export interface PersistedInterview {
+  version: 1;
+  savedAt: string;
+  /**
+   * Everything except the transcript. The conversation itself is deliberately
+   * never persisted (privacy, docs/05): what survives is role + proposal
+   * excerpts — exactly what an import would materialize anyway.
+   */
+  state: Omit<InterviewState, 'transcript'>;
+}
+
+/** Snapshot for disk, with the transcript stripped. */
+export function serializeInterview(state: InterviewState, now = new Date()): PersistedInterview {
+  const { transcript: _transcript, ...rest } = state;
+  return { version: 1, savedAt: now.toISOString(), state: structuredClone(rest) };
+}
+
+/**
+ * Rebuild a live session from a snapshot. The transcript restarts with a
+ * recap turn (progress + the question that was on the table) — that recap is
+ * all the conversational context the next processAnswer call gets, which is
+ * enough anchoring for the turn contract.
+ */
+export function resumeInterview(persisted: PersistedInterview): InterviewState {
+  const state: InterviewState = { ...structuredClone(persisted.state), transcript: [] };
+  const accepted = state.proposals.filter(
+    (p) => p.kind !== 'verification' && p.status === 'accepted',
+  ).length;
+  const pending = state.proposals.filter(
+    (p) => p.kind !== 'verification' && p.status === 'proposed',
+  ).length;
+  const parts = [
+    `Retomamos la entrevista anterior (rol: ${state.speakerRole}): ${accepted} propuesta(s) aceptada(s), ${pending} pendiente(s).`,
+  ];
+  if (state.finished) {
+    parts.push('Habíamos cubierto el guion; puedes seguir aportando detalle o cerrar con ":fin".');
+  } else if (state.scriptIndex > 0) {
+    parts.push(`Seguimos donde lo dejamos: ${state.script[state.scriptIndex - 1]!}`);
+  } else {
+    parts.push(nextScriptQuestion(state) ?? FALLBACK_QUESTION);
+  }
+  state.transcript.push({ speaker: 'agent', text: parts.join(' ') });
+  return state;
+}

@@ -13,6 +13,8 @@ import { fileURLToPath } from 'node:url';
 
 import pc from 'picocolors';
 
+import { EXIT_FINDINGS } from './output.js';
+
 export interface UpdateOptions {
   /** Branch or tag to update to (default: main, like the installers). */
   ref: string;
@@ -57,6 +59,34 @@ function versionAt(root: string, ref: string): string {
   }
 }
 
+export interface RemoteCheck {
+  root: string;
+  current: string;
+  currentVersion: string;
+  remote: string;
+  remoteVersion: string;
+  upToDate: boolean;
+}
+
+/**
+ * Fetch origin/<ref> of the install checkout (depth 1) and compare HEAD
+ * against it. Shared by `untacit update` and `untacit doctor`.
+ */
+export function checkRemote(root: string, ref: string): RemoteCheck {
+  const current = git(root, ['rev-parse', 'HEAD']);
+  const currentVersion = versionAt(root, 'HEAD');
+  try {
+    git(root, ['fetch', '--depth', '1', 'origin', ref]);
+  } catch (err) {
+    throw new Error(
+      `could not fetch origin/${ref} — check your network (${err instanceof Error ? err.message.split('\n')[0] : String(err)})`,
+    );
+  }
+  const remote = git(root, ['rev-parse', 'FETCH_HEAD']);
+  const remoteVersion = versionAt(root, 'FETCH_HEAD');
+  return { root, current, currentVersion, remote, remoteVersion, upToDate: remote === current };
+}
+
 /**
  * Run a build step quietly, installer-style: one line per step, and the
  * command's output only shows up when the step fails.
@@ -93,19 +123,8 @@ export async function runUpdate(opts: UpdateOptions): Promise<void> {
     );
   }
 
-  const current = git(root, ['rev-parse', 'HEAD']);
-  const currentVersion = versionAt(root, 'HEAD');
-
   console.log(pc.dim(`install checkout: ${root}`));
-  try {
-    git(root, ['fetch', '--depth', '1', 'origin', opts.ref]);
-  } catch (err) {
-    throw new Error(
-      `could not fetch origin/${opts.ref} — check your network (${err instanceof Error ? err.message.split('\n')[0] : String(err)})`,
-    );
-  }
-  const remote = git(root, ['rev-parse', 'FETCH_HEAD']);
-  const remoteVersion = versionAt(root, 'FETCH_HEAD');
+  const { current, currentVersion, remote, remoteVersion } = checkRemote(root, opts.ref);
 
   if (remote === current) {
     console.log(
@@ -119,6 +138,9 @@ export async function runUpdate(opts: UpdateOptions): Promise<void> {
       `${pc.cyan('update available')}: ${currentVersion} (${current.slice(0, 10)}) → ${remoteVersion} (${remote.slice(0, 10)}, ${opts.ref})`,
     );
     console.log(pc.dim('run `untacit update` to apply it'));
+    // Findings convention: scripts can poll `untacit update --check` and
+    // branch on exit 2 without parsing the message.
+    process.exitCode = EXIT_FINDINGS;
     return;
   }
 

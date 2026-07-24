@@ -55,7 +55,8 @@ live in [`docs/`](docs/).
 | Package | Contents |
 |---|---|
 | [`packages/core`](packages/core) | Types & ontology constants, canonical serializer, batch validator, graph store, entity resolver with reversible merges, conflict resolution, derived SQLite index (BM25F fielded FTS5, RM3 pseudo-relevance query expansion, incremental node + facet embeddings, late-interaction MaxSim, weighted-RRF hybrid search), graph-retrieval algorithms (spreading activation, personalized PageRank, k-best weighted paths, spectral structural embeddings, MMR), ontology diff over git, import pipeline |
-| [`packages/cli`](packages/cli) | `untacit init \| import \| index \| embed \| stats \| search \| conflicts \| diff \| extract \| interview \| serve-mcp \| update` |
+| [`packages/cli`](packages/cli) | `untacit init \| import \| index \| embed \| stats \| search \| conflicts \| diff \| doctor \| extract \| interview \| serve-mcp \| update` — query commands take `--json`, exit code 2 means "findings" (see below) |
+| [`packages/sdk`](packages/sdk) | `@untacit/sdk` — stable programmatic surface for automations: the same queries the MCP tools expose (context, explore, impact, paths, similar, evidence, conflicts, diff, stats, search) plus batch import and extraction, as a semver-contracted library |
 | [`packages/mcp`](packages/mcp) | MCP server (stdio + streamable HTTP): `untacit_context` (multi-stage hybrid retrieval), `untacit_explore`, `untacit_impact`, `untacit_paths` (strongest evidence chains between two concepts), `untacit_similar` (semantic + structural + lexical similarity), `untacit_evidence`, `untacit_diff`, `untacit_conflicts`; agent surface for host models — `untacit_interview_gaps`, `untacit_code_candidates`, `untacit_doc_sections`, versioned prompts; full write surface behind `--write` — `untacit_import_batch`, `untacit_review_queue`, `untacit_merge_accept/reject/revert`, `untacit_conflict_resolve` (every graph write, each landing as a git commit) |
 | [`packages/extractors`](packages/extractors) | Code / docs (PDF, Markdown, docx with section/page locators) / interview extraction agents. Engine = Claude Code (local CLI, no API key); pluggable LLM client, strict schema emission |
 | [`packages/app`](packages/app) | Desktop app: Tauri 2 shell (system tray, native folder picker, Windows NSIS installer) + React + Sigma.js + self-contained Node sidecar |
@@ -201,6 +202,55 @@ Dataset invariants are verified end-to-end by
 `node examples/acme-manufactura/check.mjs`; the 10 Fase 5 eval questions are
 verified against the real MCP server (tools + structuredContent) by
 `node examples/acme-manufactura/evals/run.mjs`. Both run in CI.
+
+## Agent-friendly CLI: `--json`, exit codes, `doctor`
+
+The CLI follows Claude Code-style conventions so scripts and agents can
+consume it without parsing prose:
+
+- **`--json`** on `stats`, `search`, `conflicts`, `diff`, `import`, `index`,
+  `embed` and `doctor` puts machine-readable JSON on stdout and every human
+  log on stderr (`untacit stats --graph g --json | jq .nodes_total`).
+- **Exit codes**: `0` ok · `1` execution error · `2` the command worked and
+  *found something* — `conflicts` exits 2 when contradictions are open (a
+  ready-made CI gate), `update --check` exits 2 when a newer version exists,
+  `doctor` exits 2 on failing checks.
+- **`untacit doctor [--graph <dir>] [--json] [--offline]`** diagnoses the
+  environment — git, the Claude Code engine, install freshness and, with
+  `--graph`, config validity, index staleness and embedding coverage — one
+  line per check with the exact fix command.
+- **`untacit interview --resume`** picks up an interrupted interview. Only
+  role, script and proposals are saved (never the transcript — the privacy
+  rule of docs/05 holds on disk too), and the file lives gitignored under
+  `.untacit/`.
+
+### Using untacit with coding agents
+
+`untacit init` drops an `AGENTS.md` into every new graph repo (Spanish by
+default — the `--language` default is `es` — English for any other
+`--language`; skip with `--no-agents-md`) telling
+agents how the graph works and that `graph/*.md` is never edited by hand.
+For Claude Code, [`examples/claude-code/`](examples/claude-code) ships
+ready-made hooks: a `SessionStart` graph digest (stats + open conflicts +
+drift) and a `PostToolUse` reminder to re-extract edited source files on
+demand. Contributor guidance for this monorepo itself lives in the root
+[`CLAUDE.md`](CLAUDE.md).
+
+### SDK for automations
+
+[`@untacit/sdk`](packages/sdk) is the stable programmatic surface — the same
+queries the MCP tools expose, as a library:
+
+```ts
+import { withGraph } from '@untacit/sdk';
+
+const conflicts = await withGraph('./mi-grafo', (u) => u.conflicts());
+if (conflicts.length > 0) process.exit(1); // e.g. a CI gate
+```
+
+From an installed untacit: `cd ~/.untacit/app/packages/sdk && npm link`, then
+`npm link @untacit/sdk` in your project — `untacit update` rebuilds the
+checkout in place, so the link tracks new versions automatically.
 
 ## Benchmark: the same questions, with and without untacit
 

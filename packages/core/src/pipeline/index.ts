@@ -244,6 +244,12 @@ export interface InitOptions {
   language?: string;
   /** Initialize git and make the first commit (default true). */
   git?: boolean;
+  /**
+   * Write an AGENTS.md at the graph-repo root so coding agents landing in the
+   * repo know what it is and how to operate it (default true). An existing
+   * AGENTS.md is never overwritten (same guard as .gitignore).
+   */
+  agentsMd?: boolean;
 }
 
 export function defaultConfig(language = 'es'): UntacitConfig {
@@ -290,13 +296,103 @@ export function saveConfig(repoRoot: string, config: UntacitConfig): void {
   writeFileSync(configPath(repoRoot), `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 }
 
+/**
+ * AGENTS.md content for a fresh graph repo: orientation for coding agents
+ * (what this repo is, how changes enter, how to query it). Spanish when
+ * `language` is 'es', English for any other value — matching the graph's
+ * content language chosen at init.
+ */
+export function agentsMdTemplate(language: string): string {
+  if (language === 'es') {
+    return `# AGENTS.md — repo de grafo untacit
+
+Este repositorio es un **grafo untacit** de lógica de negocio, no código
+fuente. Cada nodo vive en \`graph/<tipo>/<id>.md\` (markdown canónico y
+determinista), cada run de extracción en \`runs/\`, y el índice derivado en
+\`.untacit/\` (gitignorado, regenerable). Toda arista lleva evidencia
+obligatoria con procedencia (locator + excerpt).
+
+## Regla de oro
+
+**NO edites \`graph/*.md\` a mano.** Los cambios entran por
+\`untacit import <batch.json> --graph .\` (o \`untacit extract ... --import\`):
+el pipeline valida, resuelve entidades, serializa canónicamente y commitea.
+Una edición manual rompe el determinismo byte a byte y la trazabilidad.
+
+## Conectar un agente por MCP
+
+\`\`\`
+claude mcp add untacit -- untacit serve-mcp --graph .
+\`\`\`
+
+Cadena de tools read-only: \`untacit_context\` (búsqueda, empieza aquí) →
+\`untacit_explore\` / \`untacit_impact\` / \`untacit_paths\` /
+\`untacit_evidence\`, más \`untacit_conflicts\` y \`untacit_diff\` para
+contradicciones abiertas y drift.
+
+## CLI útil
+
+- \`untacit stats | search <q> | conflicts | diff --graph .\` — todos aceptan
+  \`--json\` para consumo agéntico.
+- Exit codes: \`0\` ok, \`1\` error, \`2\` = el comando encontró hallazgos
+  (p.ej. \`untacit conflicts\` sale con 2 si hay conflictos abiertos — útil
+  como gate en CI).
+- \`untacit doctor --graph .\` — diagnostica el entorno (binarios, índice,
+  config).
+
+> Este mismo contenido sirve como CLAUDE.md: \`ln -s AGENTS.md CLAUDE.md\`
+> (opcional).
+`;
+  }
+  return `# AGENTS.md — untacit graph repo
+
+This repository is an **untacit business-logic graph**, not source code.
+Each node lives at \`graph/<type>/<id>.md\` (canonical, deterministic
+markdown), each extraction run under \`runs/\`, and the derived index under
+\`.untacit/\` (gitignored, regenerable). Every edge carries mandatory
+evidence with provenance (locator + excerpt).
+
+## Golden rule
+
+**Do NOT edit \`graph/*.md\` by hand.** Changes enter through
+\`untacit import <batch.json> --graph .\` (or \`untacit extract ... --import\`):
+the pipeline validates, resolves entities, serializes canonically and
+commits. A manual edit breaks byte-level determinism and traceability.
+
+## Connect an agent over MCP
+
+\`\`\`
+claude mcp add untacit -- untacit serve-mcp --graph .
+\`\`\`
+
+Read-only tool chain: \`untacit_context\` (search — start here) →
+\`untacit_explore\` / \`untacit_impact\` / \`untacit_paths\` /
+\`untacit_evidence\`, plus \`untacit_conflicts\` and \`untacit_diff\` for open
+contradictions and drift.
+
+## Useful CLI
+
+- \`untacit stats | search <q> | conflicts | diff --graph .\` — all accept
+  \`--json\` for agentic consumption.
+- Exit codes: \`0\` ok, \`1\` error, \`2\` = the command found findings
+  (e.g. \`untacit conflicts\` exits 2 when there are open conflicts — useful
+  as a CI gate).
+- \`untacit doctor --graph .\` — diagnoses the environment (binaries, index,
+  config).
+
+> This same content works as a CLAUDE.md: \`ln -s AGENTS.md CLAUDE.md\`
+> (optional).
+`;
+}
+
 /** Creates the graph-repo skeleton of docs/03 §3. Idempotent: existing files are kept. */
 export function initGraphRepo(dir: string, opts: InitOptions = {}): void {
   mkdirSync(dir, { recursive: true });
   mkdirSync(graphDir(dir), { recursive: true });
   mkdirSync(runsDir(dir), { recursive: true });
 
-  if (!existsSync(configPath(dir))) {
+  const fresh = !existsSync(configPath(dir));
+  if (fresh) {
     writeFileSync(
       configPath(dir),
       `${JSON.stringify(defaultConfig(opts.language), null, 2)}\n`,
@@ -307,6 +403,20 @@ export function initGraphRepo(dir: string, opts: InitOptions = {}): void {
   const gitignore = join(dir, '.gitignore');
   if (!existsSync(gitignore)) {
     writeFileSync(gitignore, '.untacit/\n', 'utf8');
+  }
+
+  // Agent orientation file. Written BEFORE the git init below so the initial
+  // commit (gitCommitAll → `git add -A`) includes it — cli.test.ts asserts
+  // `git status --porcelain` clean after init+import, and an untracked
+  // AGENTS.md would break that idempotence canary. Fresh inits only: a
+  // re-init over an existing repo skips the git block below, so writing
+  // AGENTS.md there would leave it untracked until an unrelated run commit
+  // swept it up via `git add -A`.
+  if (fresh && (opts.agentsMd ?? true)) {
+    const agentsMd = join(dir, 'AGENTS.md');
+    if (!existsSync(agentsMd)) {
+      writeFileSync(agentsMd, agentsMdTemplate(opts.language ?? 'es'), 'utf8');
+    }
   }
 
   const keepGraph = join(graphDir(dir), '.gitkeep');

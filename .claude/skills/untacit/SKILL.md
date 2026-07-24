@@ -23,6 +23,7 @@ Skip it for generic ontology/knowledge-graph questions with no untacit repo, con
 - Read-only tools (no `--write` needed): `untacit_context` (search by text — start here) → `untacit_explore` (node detail) → `untacit_evidence` (provenance/citations) → `untacit_impact` (blast radius) → `untacit_paths` (strongest chains connecting two node ids) / `untacit_similar` (duplicate/related lens for one node) → `untacit_diff` / `untacit_conflicts` (drift & open contradictions).
 - Write tools (`untacit_import_batch`, `untacit_review_queue`, `untacit_merge_accept/reject/revert`, `untacit_conflict_resolve`) only work if the server was started with `--write` — never assume they're available; if a call fails, say the server needs `--write`, don't silently downgrade.
 - Every edge carries mandatory evidence. Cite it via `untacit_evidence` instead of trusting a one-line summary.
+- CLI exit codes: `0` ok, `1` error, `2` = the command found findings (e.g. `untacit conflicts` exits with 2 when there are open conflicts — useful as a CI gate). Never treat exit 2 as a failure; it means "look at the output".
 
 ## Decision Gates
 
@@ -32,7 +33,9 @@ Skip it for generic ontology/knowledge-graph questions with no untacit repo, con
 | Extract rules from a source repo | `untacit extract code <repoDir> --graph <dir> --import` (`--paths` for partial re-extraction, `--branch` for extraction-as-PR) |
 | Extract rules from docs (pdf/md/docx) | `untacit extract docs <files...> --graph <dir> --import` |
 | Fill knowledge gaps from a person | `untacit interview --graph <dir> --role <rol>` |
-| Query without an agent host | `untacit search \| stats \| conflicts \| diff --graph <dir>` |
+| Resume an interrupted interview | `untacit interview --resume --graph <dir>` |
+| Query without an agent host | `untacit search \| stats \| conflicts \| diff --graph <dir>` — all four accept `--json` for agentic consumption |
+| Diagnose the environment (binaries, index, config) | `untacit doctor [--graph <dir>] [--json] [--offline]` |
 | Serve to an agent host (Claude Code/Desktop) | `untacit serve-mcp --graph <dir> [--write] [--http --port <n>]` |
 | `untacit` not on PATH | `cd packages/cli && npm link` (from this monorepo) |
 | Update an installed CLI | `untacit update` (`--check` to only look; `--ref <tag>` to pin). Desktop app: chip «Actualizar a X» en la barra o tray → «Buscar actualizaciones…» |
@@ -41,7 +44,7 @@ Skip it for generic ontology/knowledge-graph questions with no untacit repo, con
 
 ## Execution Steps
 
-1. Identify which repo is the graph repo (has `untacit.config.json` / `nodes/` / `.untacit/`) versus the source repo being analyzed.
+1. Identify which repo is the graph repo (has `untacit.config.json` / `graph/` / `.untacit/`) versus the source repo being analyzed.
 2. If no MCP connection exists yet, add one: `claude mcp add untacit -- untacit serve-mcp --graph <dir>`.
 3. Answer business-logic questions by chaining `untacit_context` → `untacit_explore`/`untacit_impact` → `untacit_evidence`. Never invent a threshold/rule the graph doesn't back with evidence — say so and offer to extract or interview instead.
 4. Before calling a write tool, confirm the server is running with `--write`.
