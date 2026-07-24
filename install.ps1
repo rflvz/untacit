@@ -95,6 +95,10 @@ function Invoke-Step {
   }
   if ($WorkDir) { $startArgs.WorkingDirectory = $WorkDir }
   $p = Start-Process @startArgs
+  # Force-cache the process handle now: for fast-exiting children,
+  # Start-Process -PassThru -NoNewWindow can otherwise leave $p.ExitCode
+  # $null (a known .NET/PowerShell race), which reads as failure below.
+  $p.Handle | Out-Null
   $i = 0
   while (-not $p.HasExited) {
     Write-Host "`r    " -NoNewline
