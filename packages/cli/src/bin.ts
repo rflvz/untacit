@@ -6,5 +6,6 @@ buildProgram()
   .parseAsync(process.argv)
   .catch((err: unknown) => {
     console.error(err instanceof Error ? err.message : String(err));
-    process.exit(EXIT_ERROR);
+    // exitCode, not process.exit(): lets queued stdout/stderr flush.
+    process.exitCode = EXIT_ERROR;
   });

@@ -44,7 +44,7 @@ Skip it for generic ontology/knowledge-graph questions with no untacit repo, con
 
 ## Execution Steps
 
-1. Identify which repo is the graph repo (has `untacit.config.json` / `nodes/` / `.untacit/`) versus the source repo being analyzed.
+1. Identify which repo is the graph repo (has `untacit.config.json` / `graph/` / `.untacit/`) versus the source repo being analyzed.
 2. If no MCP connection exists yet, add one: `claude mcp add untacit -- untacit serve-mcp --graph <dir>`.
 3. Answer business-logic questions by chaining `untacit_context` → `untacit_explore`/`untacit_impact` → `untacit_evidence`. Never invent a threshold/rule the graph doesn't back with evidence — say so and offer to extract or interview instead.
 4. Before calling a write tool, confirm the server is running with `--write`.

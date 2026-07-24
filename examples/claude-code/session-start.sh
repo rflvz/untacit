@@ -28,7 +28,9 @@ echo "untacit graph digest ($UNTACIT_GRAPH):"
 # keeps that from aborting the hook.
 "$UNTACIT" conflicts --graph "$UNTACIT_GRAPH" || true
 
-# Recent drift, if any refs to compare exist; errors are irrelevant here.
-"$UNTACIT" diff --graph "$UNTACIT_GRAPH" 2>/dev/null || true
+# Drift introduced by the latest committed run (every import commits, so the
+# working tree is clean by construction and a ref-less diff would always be
+# empty). Needs at least two commits; errors are irrelevant here.
+"$UNTACIT" diff HEAD~1 HEAD --graph "$UNTACIT_GRAPH" 2>/dev/null || true
 
 exit 0

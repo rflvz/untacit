@@ -130,6 +130,20 @@ describe('untacit CLI (Fase 0 exit criteria)', () => {
     expect(stderr).toContain('--resume');
   });
 
+  it('interview refuses a non-interactive stdin instead of dying silently', () => {
+    // Tests run with piped stdin, so this exercises the real agent/CI case.
+    const { status, stderr } = cliRaw(['interview', '--graph', repo, '--role', 'ventas']);
+    expect(status).toBe(1);
+    expect(stderr).toContain('stdin no es un terminal');
+  });
+
+  it('read commands refuse a --graph that is not a graph repo (no fabricated empty graph)', () => {
+    const { status, stderr } = cliRaw(['stats', '--graph', join(tmpdir(), 'untacit-no-such-repo'), '--json']);
+    expect(status).toBe(1);
+    expect(stderr).toContain('no untacit.config.json');
+    expect(stderr).toContain('untacit init');
+  });
+
   it('rejects a malformed batch with actionable reasons', () => {
     const bad = join(repo, 'bad-batch.json');
     execFileSync('node', [

@@ -8,14 +8,17 @@ untacit business-logic graph while it works on a **source repo**.
 - **`session-start.sh`** (`SessionStart`) — when a Claude Code session opens,
   prints a digest of the graph into the session context: `untacit stats`,
   open conflicts (`untacit conflicts` — it exits with code 2 when conflicts
-  exist, hence the `|| true`), and recent drift (`untacit diff`). If
-  `UNTACIT_GRAPH` is unset it does nothing, silently.
+  exist, hence the `|| true`), and the drift of the latest committed run
+  (`untacit diff HEAD~1 HEAD`). If `UNTACIT_GRAPH` is unset it does nothing,
+  silently.
 - **`suggest-reextract.sh`** (`PostToolUse`, matcher `Edit|Write`) — after the
   agent edits or writes a file, if the path looks like source code
-  (`.ts/.js/.py/.go/.java/.rb/.php/.cs`…), it prints a reminder with the exact
-  `untacit extract code … --paths <file> --import --branch` command to
-  re-extract that path on demand. It always exits 0 and never blocks the tool
-  call.
+  (`.ts/.js/.py/.go/.java/.rb/.php/.cs`…), it injects a reminder into the
+  agent's context (via the `hookSpecificOutput.additionalContext` JSON
+  envelope — plain stdout of a PostToolUse hook never reaches the model) with
+  the exact `untacit extract code … --paths <repo-relative-file> --import
+  --branch` command to re-extract that path on demand. It always exits 0 and
+  never blocks the tool call.
 
 ## Install
 

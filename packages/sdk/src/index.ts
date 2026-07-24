@@ -94,7 +94,10 @@ export class Untacit {
     if (!existsSync(configPath(dir)) && !existsSync(graphDir(dir))) {
       throw new Error(`Not a graph repo (no untacit.config.json or graph/ in ${dir}) — run "untacit init" first`);
     }
-    return new Untacit(dir, GraphIndex.open(dir), loadConfig(dir));
+    // Config first: loadConfig throws on malformed JSON, and doing it after
+    // GraphIndex.open would leak the freshly opened SQLite handle.
+    const config = loadConfig(dir);
+    return new Untacit(dir, GraphIndex.open(dir), config);
   }
 
   private embeddings(): Promise<EmbeddingProvider | null> {

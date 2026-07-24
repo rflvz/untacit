@@ -175,7 +175,20 @@ function checkGraphGit(repo: string): DoctorCheck {
 }
 
 function checkIndex(repo: string): DoctorCheck {
-  const s = indexStaleness(repo);
+  let s: ReturnType<typeof indexStaleness>;
+  try {
+    s = indexStaleness(repo);
+  } catch (err) {
+    // A corrupt/foreign index.db is exactly what a doctor must survive to
+    // report. `untacit index` cannot repair it either — deletion can (the
+    // index is derived and regenerable).
+    return {
+      name: 'index',
+      status: 'fail',
+      detail: `derived index unreadable (${err instanceof Error ? err.message.split('\n')[0] : String(err)})`,
+      fix: `delete ${repo}/.untacit/index.db and re-run: untacit index --graph ${repo}`,
+    };
+  }
   if (!s.exists) {
     return {
       name: 'index',
@@ -233,13 +246,18 @@ async function checkEmbeddings(repo: string, deps: DoctorDeps): Promise<DoctorCh
     providerName = `transformers:${embeddings?.model ?? DEFAULT_EMBEDDING_MODEL}`;
   }
 
-  if (!indexStaleness(repo).exists) {
-    return {
-      name: 'embeddings',
-      status: 'warn',
-      detail: 'no derived index yet — embedding coverage unknown',
-      fix: `untacit index --graph ${repo} --embeddings`,
-    };
+  try {
+    if (!indexStaleness(repo).exists) {
+      return {
+        name: 'embeddings',
+        status: 'warn',
+        detail: 'no derived index yet — embedding coverage unknown',
+        fix: `untacit index --graph ${repo} --embeddings`,
+      };
+    }
+  } catch {
+    // The index check already reports the corrupt database with its fix.
+    return { name: 'embeddings', status: 'warn', detail: 'derived index unreadable — see the index check' };
   }
   try {
     const index = GraphIndex.openReadonly(repo);

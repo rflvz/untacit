@@ -453,8 +453,11 @@ export async function buildEmbeddings(
 /**
  * Read-only freshness report of the derived index against the node files on
  * disk (for diagnostics like `untacit doctor`). Never creates or mutates the
- * database: a missing .untacit/index.db reports `exists: false` with every
- * file pending, instead of building one as openIndexDb would.
+ * database file itself: a missing .untacit/index.db reports `exists: false`
+ * with every file pending, instead of building one as openIndexDb would.
+ * (Caveat: opening a WAL-mode database read-only may still create the empty
+ * -shm/-wal sidecars — a SQLite requirement — and can throw on a read-only
+ * filesystem; callers surface that as a diagnostic, not a crash.)
  */
 export function indexStaleness(repoRoot: string): {
   exists: boolean;
@@ -996,11 +999,18 @@ export class GraphIndex {
     return { provider: provider.name, computed: stale.length, removed, total };
   }
 
-  /** Embedding-cache coverage for a provider: cached vectors vs node count. */
+  /**
+   * Embedding-cache coverage for a provider: cached vectors vs node count.
+   * Joined against `nodes` because reindexing does not purge vectors of
+   * deleted nodes (updateEmbeddings does) — orphans must not count as
+   * coverage while new nodes sit unembedded.
+   */
   embeddingCoverage(providerName: string): { embedded: number; nodes: number } {
     const embedded = (
       this.db
-        .prepare('SELECT COUNT(*) AS c FROM embeddings WHERE provider = ?')
+        .prepare(
+          'SELECT COUNT(*) AS c FROM embeddings e JOIN nodes n ON n.id = e.node_id WHERE e.provider = ?',
+        )
         .get(providerName) as { c: number }
     ).c;
     const nodes = (this.db.prepare('SELECT COUNT(*) AS c FROM nodes').get() as { c: number }).c;

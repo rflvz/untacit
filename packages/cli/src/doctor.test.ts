@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -104,6 +104,23 @@ describe('untacit doctor checks', () => {
     expect(byName(checks, 'config').status).toBe('ok');
     expect(byName(checks, 'graph git').status).toBe('ok');
     expect(byName(checks, 'index').status).toBe('ok');
+  });
+
+  it('degrades a corrupt index.db to a failing check instead of crashing', async () => {
+    const broken = mkdtempSync(join(tmpdir(), 'untacit-doctor-corrupt-'));
+    try {
+      initGraphRepo(broken, { language: 'es', git: true });
+      mkdirSync(join(broken, '.untacit'), { recursive: true });
+      writeFileSync(join(broken, '.untacit', 'index.db'), 'this is not a database', 'utf8');
+      const checks = await doctorChecks({ graph: broken, offline: true }, healthyDeps());
+      const index = byName(checks, 'index');
+      expect(index.status).toBe('fail');
+      // `untacit index` cannot repair a corrupt file — the fix is deletion.
+      expect(index.fix).toContain('delete');
+      expect(byName(checks, 'embeddings').status).not.toBe('fail');
+    } finally {
+      rmSync(broken, { recursive: true, force: true });
+    }
   });
 
   it('fails the config check on a directory that is not a graph repo', async () => {

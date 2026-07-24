@@ -11,8 +11,9 @@ MCP tools or a desktop viewer.
 - `packages/core` — types, deterministic canonical serializer, batch
   validator, graph store, SQLite index, retrieval, ontology diff, import
   pipeline (`untacit init`/`import` internals).
-- `packages/cli` — `untacit` command (commander): init, import, extract,
-  search, stats, conflicts, diff, interview, serve-mcp.
+- `packages/cli` — `untacit` command (commander): init, import, index, embed,
+  stats, search, conflicts, diff, doctor, extract, interview, serve-mcp,
+  update. Query commands take `--json`; exit code 2 means "findings".
 - `packages/mcp` — MCP server: read-only tools `untacit_context`/`explore`/
   `impact`/`paths`/`similar`/`evidence`/`diff`/`conflicts`, plus a write
   surface behind `--write`.
@@ -20,6 +21,8 @@ MCP tools or a desktop viewer.
   interviews (engine = local `claude` CLI).
 - `packages/app` — Tauri desktop viewer.
 - `packages/server` — self-hosted multi-graph MCP HTTP server with OAuth.
+- `packages/sdk` — `@untacit/sdk`, the stable programmatic surface for
+  automations (semver contract; wraps core + the mcp query layer).
 
 ## Commands
 

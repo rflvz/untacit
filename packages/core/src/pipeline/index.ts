@@ -391,7 +391,8 @@ export function initGraphRepo(dir: string, opts: InitOptions = {}): void {
   mkdirSync(graphDir(dir), { recursive: true });
   mkdirSync(runsDir(dir), { recursive: true });
 
-  if (!existsSync(configPath(dir))) {
+  const fresh = !existsSync(configPath(dir));
+  if (fresh) {
     writeFileSync(
       configPath(dir),
       `${JSON.stringify(defaultConfig(opts.language), null, 2)}\n`,
@@ -407,8 +408,11 @@ export function initGraphRepo(dir: string, opts: InitOptions = {}): void {
   // Agent orientation file. Written BEFORE the git init below so the initial
   // commit (gitCommitAll → `git add -A`) includes it — cli.test.ts asserts
   // `git status --porcelain` clean after init+import, and an untracked
-  // AGENTS.md would break that idempotence canary.
-  if (opts.agentsMd ?? true) {
+  // AGENTS.md would break that idempotence canary. Fresh inits only: a
+  // re-init over an existing repo skips the git block below, so writing
+  // AGENTS.md there would leave it untracked until an unrelated run commit
+  // swept it up via `git add -A`.
+  if (fresh && (opts.agentsMd ?? true)) {
     const agentsMd = join(dir, 'AGENTS.md');
     if (!existsSync(agentsMd)) {
       writeFileSync(agentsMd, agentsMdTemplate(opts.language ?? 'es'), 'utf8');

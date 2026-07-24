@@ -226,8 +226,9 @@ consume it without parsing prose:
 
 ### Using untacit with coding agents
 
-`untacit init` drops an `AGENTS.md` into every new graph repo (Spanish with
-`--language es`, English otherwise; skip with `--no-agents-md`) telling
+`untacit init` drops an `AGENTS.md` into every new graph repo (Spanish by
+default — the `--language` default is `es` — English for any other
+`--language`; skip with `--no-agents-md`) telling
 agents how the graph works and that `graph/*.md` is never edited by hand.
 For Claude Code, [`examples/claude-code/`](examples/claude-code) ships
 ready-made hooks: a `SessionStart` graph digest (stats + open conflicts +

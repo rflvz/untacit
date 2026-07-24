@@ -56,6 +56,18 @@ describe('initGraphRepo AGENTS.md', () => {
     expect(existsSync(join(dir, 'AGENTS.md'))).toBe(false);
   });
 
+  it('re-init over an existing graph repo does not add AGENTS.md (would sit untracked)', () => {
+    const dir = tmp();
+    initGraphRepo(dir, { agentsMd: false });
+    expect(existsSync(join(dir, 'AGENTS.md'))).toBe(false);
+    // A repo that predates the feature: re-init skips the git block, so
+    // writing AGENTS.md here would leave the tree dirty until an unrelated
+    // run commit swept it up via `git add -A`.
+    initGraphRepo(dir);
+    expect(existsSync(join(dir, 'AGENTS.md'))).toBe(false);
+    expect(gitStatusClean(dir)).toBe(true);
+  });
+
   it('never overwrites a pre-existing AGENTS.md', () => {
     const dir = tmp();
     writeFileSync(join(dir, 'AGENTS.md'), 'custom agent notes\n', 'utf8');

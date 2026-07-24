@@ -1,7 +1,7 @@
 /**
  * untacit CLI (docs/03 §2): init | import | index | embed | stats | search |
- * diff | conflicts | extract | interview | serve-mcp | update. Thin
- * composition over @untacit/core and @untacit/extractors.
+ * diff | conflicts | doctor | extract | interview | serve-mcp | update.
+ * Thin composition over @untacit/core and @untacit/extractors.
  */
 
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -14,6 +14,7 @@ import {
   GraphIndex,
   buildEmbeddings,
   buildIndex,
+  configPath,
   createEmbeddingProvider,
   diffRefs,
   diffWorkingTree,
@@ -28,11 +29,24 @@ import type { EmbeddingProvider, EmbeddingsConfig } from '@untacit/core';
 import { Command } from 'commander';
 import pc from 'picocolors';
 
-import { EXIT_FINDINGS, emitJson, stdoutIsInteractive, unicodeOk } from './output.js';
+import { EXIT_FINDINGS, emitJson, stdinIsInteractive, stdoutIsInteractive, unicodeOk } from './output.js';
 import { createInterviewUi } from './ui.js';
 
+/**
+ * Resolve --graph and refuse a directory that is not a graph repo. Without
+ * this, GraphIndex.open would fabricate an empty index at the typo'd path
+ * and e.g. `conflicts --json` would report a clean graph (exit 0) for a
+ * repo that was never looked at — poison under the "exit 2 = findings"
+ * contract.
+ */
 function graphRoot(opts: { graph?: string }): string {
-  return resolve(opts.graph ?? process.cwd());
+  const dir = resolve(opts.graph ?? process.cwd());
+  if (!existsSync(configPath(dir))) {
+    throw new Error(
+      `no untacit.config.json at ${dir} — not a graph repo (create one with \`untacit init ${dir}\`, or fix --graph)`,
+    );
+  }
+  return dir;
 }
 
 /**
@@ -645,6 +659,14 @@ export function buildProgram(): Command {
         if (role === '' && !opts.resume) {
           throw new Error('--role es obligatorio (rol de la persona entrevistada, nunca su nombre)');
         }
+        // Without a live stdin, rl.question never settles (EOF) or eats piped
+        // lines as prompt answers — either way the process would "succeed"
+        // silently having interviewed nobody. Fail loudly instead.
+        if (!stdinIsInteractive()) {
+          throw new Error(
+            'la entrevista es interactiva y stdin no es un terminal — ejecútala en un TTY (o usa --gaps-only para la parte sin LLM)',
+          );
+        }
         const engine = extractors.claudeCodeAvailable();
         if (!engine.ok) {
           throw new Error(`el agente entrevistador corre sobre Claude Code y no está disponible: ${engine.detail}`);
@@ -687,6 +709,7 @@ export function buildProgram(): Command {
       } else {
         if (existsSync(sessionPath)) {
           const confirm = createInterface({ input: process.stdin, output: process.stdout });
+          confirm.on('SIGINT', () => process.exit(130));
           try {
             const answer = (
               await confirm.question(
@@ -731,9 +754,34 @@ export function buildProgram(): Command {
         writeFileSync(tmp, `${JSON.stringify(extractors.serializeInterview(state), null, 2)}\n`, 'utf8');
         renameSync(tmp, sessionPath);
       };
+      // Delete only OUR session on success: a concurrent interview over the
+      // same graph may have overwritten the file, and its (resumable) work
+      // must not be swept away by this process closing.
+      const removeOwnSession = (): void => {
+        try {
+          const onDisk = JSON.parse(readFileSync(sessionPath, 'utf8')) as {
+            state?: { interviewId?: string };
+          };
+          if (onDisk.state?.interviewId !== state.interviewId) return;
+        } catch {
+          return;
+        }
+        rmSync(sessionPath, { force: true });
+      };
       saveSession();
 
       const rl = createInterface({ input: process.stdin, output: process.stdout });
+      // Without a listener, readline swallows Ctrl+C between questions (raw
+      // mode): it just closes the interface, the in-flight LLM call keeps
+      // spending, and the next rl.question dies with a cryptic
+      // ERR_USE_AFTER_CLOSE. The session is saved after every turn, so an
+      // interrupt can exit cleanly and point at --resume.
+      rl.on('SIGINT', () => {
+        console.log(
+          `\n${pc.dim('entrevista interrumpida — la sesión está guardada; retómala con: untacit interview --resume --graph …')}`,
+        );
+        process.exit(130);
+      });
       try {
         // Cross-verification pass (docs/03 §4.3.5) before the open conversation.
         // Only still-pending ones: a resumed session skips what was resolved.
@@ -839,7 +887,7 @@ export function buildProgram(): Command {
 
       const batch = extractors.finishInterview(state);
       if (batch.nodes.length === 0 && batch.edges.length === 0) {
-        rmSync(sessionPath, { force: true });
+        removeOwnSession();
         console.log(pc.dim('nada aceptado — la sesión no se importa'));
         return;
       }
@@ -855,7 +903,7 @@ export function buildProgram(): Command {
         );
         if (imported.commit) console.log(pc.dim(`  commit ${imported.commit.slice(0, 10)}`));
         // Only a successful close removes the resumable session.
-        rmSync(sessionPath, { force: true });
+        removeOwnSession();
       } catch (err) {
         // The session cost a real conversation — never lose the batch to an
         // import failure the user can fix and retry. The session file stays
