@@ -82,6 +82,86 @@ export const WAKE_FRAMES: Record<Charset, readonly string[]> = {
   ascii: ['(u.u)', '(o.u)', '(o.o)'],
 };
 
+// ───────────────────────── pixel-art mascot ─────────────────────────
+//
+// A half-block creature, one bounding box (ART_WIDTH × ART_HEIGHT) for every
+// frame of every mood — the width/height invariant holds by construction
+// because all rows come from these four templates. Eyes are negative space
+// carved out of the solid body; partial blocks act as eyelids and gaze:
+//   ' ' open   '▐' looking left   '▌' looking right
+//   '▀' squint '▄' happy-closed   '█' fully shut (wake-up only)
+//
+//    ▄█████▄
+//   ▐██ █ ██▌
+//   ▐███████▌
+//    ▀▀   ▀▀
+
+export const ART_WIDTH = 9;
+export const ART_HEIGHT = 4;
+/** Below this many columns the block region falls back to the single line. */
+export const MIN_BLOCK_COLUMNS = 40;
+
+const crown = (tl = ' ', tr = ' '): string => `${tl}▄█████▄${tr}`;
+const face = (l: string, r: string): string => `▐██${l}█${r}██▌`;
+const BODY = '▐███████▌';
+const FEET = ' ▀▀   ▀▀ ';
+const sprite = (l: string, r: string, tl?: string, tr?: string): readonly string[] => [
+  crown(tl, tr),
+  face(l, r),
+  BODY,
+  FEET,
+];
+const OPEN = sprite(' ', ' ');
+
+export interface ArtSprite {
+  /** Each frame: ART_HEIGHT rows of exactly ART_WIDTH chars. Frame 0 is canonical. */
+  readonly frames: readonly (readonly string[])[];
+}
+
+export const MASCOT_ART: Record<Mood, ArtSprite> = {
+  // Mostly open, a slow blink, then a wink.
+  listening: {
+    frames: [OPEN, OPEN, OPEN, OPEN, OPEN, sprite('▄', '▄'), sprite(' ', '▄'), OPEN],
+  },
+  // Gaze wanders left/right while a thought-spark pulses at the crown.
+  thinking: {
+    frames: [
+      sprite('▐', '▐'),
+      sprite('▐', '▐', ' ', '·'),
+      sprite('▌', '▌', ' ', '✢'),
+      sprite('▌', '▌', ' ', '·'),
+      sprite(' ', ' ', ' ', '·'),
+      sprite('▐', '▐'),
+    ],
+  },
+  // Happy closed eyes, sparks dancing at the crown corners.
+  celebrating: {
+    frames: [
+      sprite('▄', '▄', '✧', '✦'),
+      sprite('▄', '▄', '✦', '✧'),
+      sprite(' ', '▄', '✧', '✦'),
+      sprite('▄', '▄'),
+    ],
+  },
+  // One eye wide, one squinting, a question mark beside the head.
+  verifying: {
+    frames: [
+      sprite(' ', '▀', ' ', '?'),
+      sprite(' ', '▀', ' ', '?'),
+      sprite('▀', ' ', ' ', '?'),
+      sprite(' ', '▀', ' ', '?'),
+    ],
+  },
+};
+
+/** Banner intro in art: eyes shut → lids lifting → one eye → awake. */
+export const WAKE_ART: readonly (readonly string[])[] = [
+  sprite('█', '█'),
+  sprite('▀', '▀'),
+  sprite(' ', '▄'),
+  OPEN,
+];
+
 /**
  * Whimsical Spanish gerunds, cycled by index (index 0 first, never random).
  * Length-capped in theme.test.ts so face+spark+verb+(NNs) stays well under

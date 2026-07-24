@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ART_HEIGHT,
+  ART_WIDTH,
   EMBED_VERBS,
   EXTRACT_VERBS,
+  MASCOT_ART,
   MASCOT_FRAMES,
   SCRIPT_VERBS,
   SPARK_FRAMES,
   SPARK_PAINTS,
   STATUS_GLYPHS,
   THINKING_VERBS,
+  WAKE_ART,
   WAKE_FRAMES,
 } from './theme.js';
 import type { Charset, Mood } from './theme.js';
@@ -66,5 +70,33 @@ describe('theme (frames, verbs, glyphs)', () => {
 
   it('the shimmer palette aligns with the unicode spark cycle', () => {
     expect(SPARK_PAINTS.length).toBe(SPARK_FRAMES.unicode.length);
+  });
+
+  it('every art frame is a perfect ART_WIDTH×ART_HEIGHT rectangle', () => {
+    const allFrames = [...MOODS.flatMap((m) => MASCOT_ART[m].frames), ...WAKE_ART];
+    for (const frame of allFrames) {
+      expect(frame.length).toBe(ART_HEIGHT);
+      for (const row of frame) {
+        expect(row.length).toBe(ART_WIDTH);
+      }
+    }
+  });
+
+  it('art moods animate (≥2 distinct frames) with distinct canonical poses', () => {
+    const canonical = MOODS.map((m) => MASCOT_ART[m].frames[0]!.join('\n'));
+    expect(new Set(canonical).size).toBe(MOODS.length);
+    for (const mood of MOODS) {
+      const distinct = new Set(MASCOT_ART[mood].frames.map((f) => f.join('\n')));
+      expect(distinct.size).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('art uses only single-column glyphs (column math stays valid)', () => {
+    const allFrames = [...MOODS.flatMap((m) => MASCOT_ART[m].frames), ...WAKE_ART];
+    for (const row of allFrames.flat()) {
+      for (const ch of row) {
+        expect(ch).toMatch(/^[ ▐▌▀▄█✧✦·✢?]$/);
+      }
+    }
   });
 });
