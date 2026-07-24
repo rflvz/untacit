@@ -30,12 +30,14 @@ Todo TypeScript salvo el shell de Tauri (Rust generado, sin lógica propia). Raz
 ```
 untacit/
   packages/
-    core/          # esquema, serializador canónico, validador, índice SQLite, resolver, diff. Sin dependencias de UI ni de LLM
+    core/          # esquema, serializador canónico, validador, índice SQLite, resolver, retrieval, diff, pipeline. Sin dependencias de UI ni de LLM
     extractors/    # agentes (motor Claude Code): code, docs, interview. Dependen de core
-    mcp/           # servidor MCP stdio sobre core
-    cli/           # untacit init | extract | index | diff | stats | serve-mcp
+    mcp/           # servidor MCP (stdio o Streamable HTTP) sobre core
+    cli/           # untacit init | import | index | embed | stats | search | conflicts | diff | doctor | extract | interview | update | serve-mcp
     app/           # Tauri 2 + React + Vite + Tailwind
-  docs/            # estos cuatro documentos
+    server/        # servidor MCP HTTP multi-grafo autoalojado con OAuth (docs/06)
+    sdk/           # @untacit/sdk: superficie programática estable para automatizaciones (contrato semver sobre core + mcp)
+  docs/            # estos documentos
   examples/        # repo de grafo sintético (empresa ficticia de manufactura) en formato canónico
 ```
 
