@@ -46,9 +46,27 @@ into a temp repo with the CLI and set `UNTACIT_REPO` to it.
   reviewer **role** (persisted locally, never a name) is recorded as `by` in
   every decision, and node ids link back to the graph view.
 - **Runs** — the graph-repo lifecycle without the terminal: run history
-  (id, source, stats, commit), batch import (paste or pick the JSON produced
-  by `untacit extract … --out`, with rejections and merge proposals surfaced),
-  and remote sync — ahead/behind against the upstream, ff-only pull and push.
+  (id, source, stats, commit), **extraction from the app** (see below), batch
+  import (paste or pick the JSON produced by `untacit extract … --out`, with
+  rejections and merge proposals surfaced), and remote sync — ahead/behind
+  against the upstream, ff-only pull and push.
+- **Extracción** (Runs tab) — `untacit extract code|docs --import` without the
+  terminal. Pick one of the sources declared in `untacit.config.json`, get a
+  **preview that costs no LLM call** (the CLI's `--candidates-only` /
+  `--sections-only`: candidates with their heuristic signals, or document
+  sections with their locators, plus how many agent calls the run would make),
+  then launch it. Extraction is a job: the card shows the phase (escaneo de
+  candidatos → llamadas al agente → import), a progress bar over the planned
+  calls, validator rejections as they happen, and a **cancel** button. When it
+  lands, the run's stats/commit are shown with a shortcut to Revisión if the
+  resolver queued merge proposals. Options mirror the CLI: max candidates,
+  candidates/sections per call, `--model`, and `--branch` (commit the run on
+  `run/<run_id>` for extraction-as-PR). Cancelling aborts before the next agent
+  call and discards the partial batch, like Ctrl+C on the CLI; if the *import*
+  fails instead, the emitted batch stays downloadable so the LLM spend is never
+  lost. The engine is the local **Claude Code** CLI — with it missing, the card
+  explains how to install it (or set `UNTACIT_CLAUDE_BIN`, or extract via MCP)
+  and keeps the preview working.
 - **Drift** — ontology-level diff between two git refs of the graph repo; the
   ref inputs autocomplete from the repo's recent commits.
 - **Entrevista** — Fase 4 (docs/03 §4.3): chat with the interviewer agent +
@@ -63,13 +81,28 @@ into a temp repo with the CLI and set `UNTACIT_REPO` to it.
   ≤ 300 chars with the interviewee's **role**, never a name. The engine is the
   local **Claude Code** CLI (print mode, your existing Claude Code auth) — no
   API key anywhere; without Claude Code installed, run interviews from Claude
-  Desktop/Claude Code via the MCP server instead.
+  Desktop/Claude Code via the MCP server instead. The agent's **model** is
+  selectable (the CLI's `--model`; the default is Claude Code's own).
+
+  Sessions are **resumable**: the sidecar writes the same snapshot the CLI's
+  `untacit interview --resume` reads — `.untacit/interview-session.json`
+  (version 1), atomically, after every turn and every validation decision — so
+  closing the app, switching repos or losing the sidecar no longer costs the
+  sitting, and a session started in the app can be finished from the terminal
+  (or vice versa). Reopening the tab offers **reanudar** or **descartar** with
+  the saved role, turn count and pending proposals. What is persisted is role,
+  script, script index and proposals; **the transcript is not** — on resume the
+  agent opens with a recap of where you left off, not with the conversation
+  (docs/05-auditoria-privacidad.md). Only a successful import removes the
+  snapshot, and only if it is still ours: a concurrent CLI interview over the
+  same graph repo keeps its own resumable work.
 
 ## Sidecar API
 
 `sidecar/server.ts` (Hono). `GET /api/health | stats | graph | node/:id |
 search (mode=fts|semantic|hybrid) | conflicts | review | runs | diff |
 git/log | git/status (?fetch=1)`,
+`POST /api/extract` (run an extraction agent over a declared source),
 `POST /api/init` (create the graph-repo skeleton in the configured folder),
 `POST /api/import` (materialize an extraction batch as a run + commit),
 `POST /api/git/pull | push` (ff-only pull / push against the upstream),
@@ -85,13 +118,59 @@ When the picked folder has no `untacit.config.json`, the frontend shows an
 "initialize here" screen backed by `POST /api/init` — and it never queries
 the graph routes on an uninitialized folder (no stray `.untacit/`).
 
-Interview endpoints (in-memory sessions, LLM required except for `gaps`):
-`GET /api/interview/gaps | /api/interview/:id`,
-`POST /api/interview/start | :id/answer | :id/proposal/:pid (accept · reject ·
-edit · confirm · refute · skip) | :id/accept-all | :id/finish`.
+Extraction endpoints (`sidecar/extract.ts`; LLM required except for `sources`
+and `preview`):
 
-For `/api/open` to resolve code locators, declare the source repos in the
-graph repo's `untacit.config.json`:
+| route | what it does |
+| --- | --- |
+| `GET /api/extract/sources` | declared sources resolved against this machine (existence, document counts) + whether the local `claude` binary is reachable + the job currently running |
+| `POST /api/extract/preview` | `{kind, source, maxCandidates?, paths?, chunkSize?}` → candidates or sections and the number of agent calls a run would make. **No LLM call** |
+| `POST /api/extract` | `{kind, source, model?, chunkSize?, maxCandidates?, paths?, branch?}` → `202` with the job snapshot |
+| `GET /api/extract` | remembered jobs, newest first |
+| `GET /api/extract/:id` | one job snapshot (polling) |
+| `GET /api/extract/:id/events` | the same snapshots as SSE (`event: job`), ending on the terminal phase |
+| `POST /api/extract/:id/cancel` | abort before the next agent call |
+| `GET /api/extract/:id/batch` | the emitted batch, verbatim — survives a failed import |
+
+Job phases: `scanning → extracting → importing` then `done | error |
+cancelled`. Two deliberate constraints: **one running job at a time** (a second
+`POST /api/extract` answers `409`), because the import writes files and commits;
+and **`reindex: false`** on the import — the sidecar's own index reindexes on
+the next read, so `.untacit/index.db` never has two writers. `paths` scopes a
+code run to specific files/dirs (partial re-extraction, docs/03 §5); the UI
+does not expose it yet.
+
+Cancellation is honored both before the next agent call and after the last one,
+so it can never end in a commit. An import failure is different: the batch is
+written to `.untacit/rescue/untacit-batch-<run_id>.json` (gitignored, so it
+cannot dirty the graph repo) as well as being served from
+`/api/extract/:id/batch`, because the in-memory copy dies with the job's TTL or
+a sidecar restart — the CLI writes the same rescue file for the same reason.
+
+All graph writes — imports, merges, conflict resolutions, settings saves,
+git pull/push, interview finishes — go through one queue (`sidecar/write-queue.ts`).
+A job's import lands long after the request that started it, and two overlapping
+writes would race on the git index and on files a `GraphStore.load` had already
+snapshotted. Only the write step queues, so a running extraction never blocks
+the review tray.
+
+Interview endpoints (live session in memory, resumable snapshot on disk; LLM
+required except for `gaps` and `saved`):
+`GET /api/interview/gaps | /api/interview/saved | /api/interview/:id`,
+`POST /api/interview/start (role, model?) | /api/interview/resume (model?) |
+:id/answer | :id/proposal/:pid (accept · reject · edit · confirm · refute ·
+skip) | :id/accept-all | :id/finish`,
+`DELETE /api/interview/saved` (discard the interrupted session). `gaps` carries
+the saved-session summary so the start screen needs one request; an unreadable,
+malformed or future-version snapshot answers `409` on `saved`/`resume` (and
+`null` on `gaps`) so "descartar" stays reachable. `start` itself answers `409`
+while any snapshot is on disk unless the caller passes `discardSaved: true` —
+overwriting it costs a real conversation, and the CLI refuses the same thing
+without a typed confirmation. The UI's own gate is a convenience on top of that
+rule, not a substitute: it disappears when the gaps request fails.
+
+For `/api/open` to resolve code locators, and for extraction to know what to
+read, declare the sources in the graph repo's `untacit.config.json`:
 
 ```json
 {
@@ -101,6 +180,21 @@ graph repo's `untacit.config.json`:
   }
 }
 ```
+
+`include`/`exclude` on a source are **globs over the source-relative path**
+(`src/**/*.ts`, `**/*.md` — `**` crosses directory separators, `*` and `?` do
+not), matched by the sidecar rather than handed to the extractors' scanner:
+that takes RegExps and would *replace* its own `node_modules`/`dist`/`test`
+exclusions with whatever it is given. Filtering first and passing the surviving
+files as the scanner's `paths` keeps those guards in force. Document sources
+are walked for `.md`, `.markdown`, `.txt`, `.pdf` and `.docx` (max 200 files
+per source); a file that cannot be parsed is reported and skipped, never fatal.
+
+Request-level hardening, because the sidecar is an unauthenticated CORS-open
+loopback port: `paths` entries are checked for containment in the source root
+(the same guard `POST /api/open` applies to locators), and `model` is
+allowlisted to `[A-Za-z0-9._:@/-]` — it ends up in the `claude --model` argv,
+which on Windows is spawned through a shell that does not escape it.
 
 ## Tauri shell
 
@@ -146,3 +240,25 @@ CI: PRs type-check the shell with `cargo check` on `windows-latest`
 `.github/workflows/desktop.yml` (tags `v*` → attached to a draft release;
 manual runs → uploaded artifact). `pnpm dev` gives the same UI in a plain
 browser. User-facing guide: `docs/08-guia-app-escritorio-windows.md`.
+
+## Known gaps
+
+Deliberately out of scope so far, and what would have to change:
+
+- **Multi-workspace.** One sidecar process serves exactly one graph repo, and
+  switching folders restarts it (so extraction jobs and live interview
+  transcripts are dropped, though the interview snapshot on disk survives per
+  repo). Several graphs open side by side means a repo-keyed sidecar registry
+  and per-repo job/session maps.
+- **Job durability.** Extraction jobs live in the sidecar's memory (capped at
+  20, an hour's TTL). Killing the sidecar mid-run loses the progress view; the
+  agent calls already paid for go with it. Interviews *are* durable — extraction
+  is not, and would need the same snapshot treatment.
+- **Layout stability.** The views are single-column pages with fixed
+  breakpoints; panels do not remember their size, the graph canvas does not
+  restore its viewport across tab switches, and very narrow windows wrap rather
+  than reflow.
+- **i18n.** Every user-facing string is Spanish, inline in the components.
+  There is no message catalog and no locale switch.
+- **Partial re-extraction from the UI.** `POST /api/extract` accepts `paths`
+  (the CLI's `--paths`) but the card has no picker for it yet.

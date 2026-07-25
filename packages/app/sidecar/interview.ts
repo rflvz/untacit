@@ -2,16 +2,29 @@
  * Interview routes (Fase 4, docs/03 §4.3): the sidecar face of the
  * extractor-interview engine.
  *
- * Sessions live in memory only — by design, the full transcript never touches
- * the graph repo (privacy, docs/03 §8); what persists is the interview run
- * that /finish imports and commits (excerpts ≤ 300 chars, role, no names).
+ * **The transcript is never persisted.** Live sessions keep it in memory only;
+ * what reaches disk between turns is the resumable snapshot the CLI already
+ * writes — role, script, script index and proposals, and nothing else
+ * (`serializeInterview` strips the transcript; docs/03 §8, audit in
+ * docs/05-auditoria-privacidad.md). What reaches the graph repo is the
+ * interview run that /finish imports and commits (excerpts ≤ 300 chars, role,
+ * no names).
+ *
+ * Resume uses the very same file and format as `untacit interview --resume`:
+ * `.untacit/interview-session.json` (`interviewSessionPath` in core), version
+ * 1, written atomically (tmp + rename) after every turn and every validation
+ * action. So a session started in the app can be finished from the terminal
+ * and vice versa; closing the app or switching repos no longer loses it.
  *
  * The LLM client is injected for tests; in production the engine is Claude
  * Code — ClaudeCodeLlmClient drives the local `claude` CLI with whatever
- * authentication Claude Code already has (no ANTHROPIC_API_KEY anywhere).
+ * authentication Claude Code already has (no ANTHROPIC_API_KEY anywhere), with
+ * an optional per-session model (the CLI's `--model`).
  * Missing extractors or Claude Code → 503 with an actionable message.
  */
 
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import type { Context, Hono } from 'hono';
 import type {
   ApiError,
@@ -19,19 +32,29 @@ import type {
   InterviewAcceptAllResponse,
   InterviewAnswerRequest,
   InterviewAnswerResponse,
+  InterviewDiscardResponse,
   InterviewFinishResponse,
   InterviewGapsResponse,
   InterviewProposalRequest,
   InterviewProposalResponse,
+  InterviewResumeRequest,
+  InterviewSavedResponse,
+  InterviewSavedSession,
   InterviewStartRequest,
   InterviewStartResponse,
   InterviewStateResponse,
 } from '../src/api-types.js';
+import { createEngineProbe, modelFromPayload } from './agent-engine.js';
 import type { CoreModule } from './core-loader.js';
 import { extractorsLoadError, loadExtractors, type ExtractorsModule } from './extractors-loader.js';
 
 // Engine types, erased at compile time (runtime goes through the loader).
-import type { CoverageGap, InterviewState, LlmClient } from '@untacit/extractors';
+import type {
+  CoverageGap,
+  InterviewState,
+  LlmClient,
+  PersistedInterview,
+} from '@untacit/extractors';
 
 type GraphIndexInstance = ReturnType<CoreModule['GraphIndex']['open']>;
 
@@ -42,13 +65,22 @@ export interface InterviewRouteDeps {
     handler: (c: Context, core: CoreModule) => Promise<Response> | Response,
   ) => (c: Context) => Promise<Response>;
   getIndex: (core: CoreModule) => GraphIndexInstance;
-  /** Injected LLM client (tests); production resolves AnthropicLlmClient lazily. */
+  /**
+   * createApp's write queue: /finish imports and commits, so it must not
+   * interleave with another graph write (an extraction job, a merge accepted).
+   */
+  serializeWrite: <T>(work: () => Promise<T> | T) => Promise<T>;
+  /** Injected LLM client (tests); production resolves ClaudeCodeLlmClient lazily. */
   llm?: LlmClient;
 }
 
 interface InterviewSession {
   state: InterviewState;
   gaps: CoverageGap[];
+  /** Model the session's agent runs on ("default" = Claude Code's own). */
+  model: string;
+  /** Client bound to this session's model, resolved once at start/resume. */
+  llm: LlmClient;
   /** Epoch ms of the last request touching this session (TTL eviction). */
   lastActivity: number;
 }
@@ -68,9 +100,11 @@ const SESSION_TTL_MS = 4 * 60 * 60 * 1000;
 const MAX_SESSIONS = 20;
 
 export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): void {
-  const { repoRoot, route, getIndex } = deps;
+  const { repoRoot, route, getIndex, serializeWrite } = deps;
   const sessions = new Map<string, InterviewSession>();
-  let fallbackLlm: LlmClient | undefined;
+  /** One client per model id — building it probes nothing, but reuse is cheap. */
+  const llmCache = new Map<string, LlmClient>();
+  const probeEngine = createEngineProbe();
 
   const sweepSessions = (now: number): void => {
     for (const [id, session] of sessions) {
@@ -90,20 +124,157 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
     }
   };
 
-  /** Resolve the LLM client or explain exactly what is missing. */
+  /**
+   * Resolve the LLM client for a model, or explain exactly what is missing.
+   * An injected client (tests) always wins and ignores the model override.
+   */
   const resolveLlm = (
     extractors: ExtractorsModule,
+    model?: string,
   ): { llm: LlmClient } | { error: string } => {
     if (deps.llm !== undefined) return { llm: deps.llm };
-    if (fallbackLlm !== undefined) return { llm: fallbackLlm };
+    const key = model ?? 'default';
+    const cached = llmCache.get(key);
+    if (cached !== undefined) return { llm: cached };
     // Engine = Claude Code: the sidecar drives the local `claude` CLI with
-    // whatever authentication it already has. No API key involved.
-    const engine = extractors.claudeCodeAvailable();
+    // whatever authentication it already has. No API key involved. The probe
+    // is cached because it blocks the event loop (execFileSync).
+    const engine = probeEngine(extractors);
     if (!engine.ok) {
       return { error: engine.detail };
     }
-    fallbackLlm = new extractors.ClaudeCodeLlmClient();
-    return { llm: fallbackLlm };
+    const llm = new extractors.ClaudeCodeLlmClient(model !== undefined ? { model } : {});
+    llmCache.set(key, llm);
+    return { llm };
+  };
+
+  // Validated, not just trimmed: the value lands in the `claude --model` argv,
+  // which on Windows goes through a shell (see sidecar/agent-engine.ts).
+  const modelFrom = modelFromPayload;
+
+  // ---------------------------------------------------------------------------
+  // Resumable session on disk — the CLI's `--resume` file, same format.
+  // interviewSessionPath() lives under .untacit/ (gitignored derived state), so
+  // nothing here is ever committed. serializeInterview() strips the transcript:
+  // that is the single place the privacy invariant is enforced, and it is the
+  // engine's own function, shared with the CLI.
+  // ---------------------------------------------------------------------------
+
+  const sessionFile = (core: CoreModule): string => core.interviewSessionPath(repoRoot);
+
+  const saveSession = (
+    core: CoreModule,
+    extractors: ExtractorsModule,
+    state: InterviewState,
+  ): void => {
+    const path = sessionFile(core);
+    try {
+      mkdirSync(dirname(path), { recursive: true });
+      const tmp = `${path}.tmp`;
+      // Atomic: a crash mid-write leaves the previous snapshot intact.
+      writeFileSync(
+        tmp,
+        `${JSON.stringify(extractors.serializeInterview(state), null, 2)}\n`,
+        'utf8',
+      );
+      renameSync(tmp, path);
+    } catch (err) {
+      // Persistence is a convenience (resume); losing it must never cost the
+      // caller a turn that already spent an LLM call.
+      console.warn(
+        `[untacit-sidecar] no se pudo guardar la sesión de entrevista en ${path}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  };
+
+  /**
+   * Delete only OUR session: a concurrent interview (the CLI over the same
+   * graph repo) may have overwritten the file, and its resumable work must not
+   * be swept away by this one closing.
+   */
+  const removeOwnSession = (core: CoreModule, interviewId: string): void => {
+    const path = sessionFile(core);
+    try {
+      const onDisk = JSON.parse(readFileSync(path, 'utf8')) as {
+        state?: { interviewId?: string };
+      };
+      if (onDisk.state?.interviewId !== interviewId) return;
+    } catch {
+      return;
+    }
+    rmSync(path, { force: true });
+  };
+
+  /**
+   * The persisted snapshot, or a reason it cannot be used.
+   *
+   * The shape is validated, not just the version: a v1 file with a missing or
+   * reshaped `state` would otherwise make every reader (savedSummary,
+   * resumeInterview) throw a TypeError, i.e. answer 500 on a situation the
+   * caller can fix by discarding it.
+   */
+  const readSaved = (
+    core: CoreModule,
+  ): { snapshot: PersistedInterview } | { error: string } | undefined => {
+    const path = sessionFile(core);
+    if (!existsSync(path)) return undefined;
+    let parsed: { version?: unknown; savedAt?: unknown; state?: unknown };
+    try {
+      parsed = JSON.parse(readFileSync(path, 'utf8')) as typeof parsed;
+    } catch (err) {
+      return { error: `sesión guardada ilegible (${err instanceof Error ? err.message : String(err)})` };
+    }
+    if (parsed === null || typeof parsed !== 'object') {
+      return { error: 'sesión guardada ilegible (no es un objeto JSON)' };
+    }
+    if (parsed.version !== 1) {
+      return {
+        error: `versión de sesión desconocida (${String(parsed.version)}) — descártala o actualiza untacit`,
+      };
+    }
+    const state = parsed.state as Partial<InterviewState> | undefined;
+    if (
+      state === null ||
+      typeof state !== 'object' ||
+      typeof state.interviewId !== 'string' ||
+      typeof state.speakerRole !== 'string' ||
+      !Array.isArray(state.script) ||
+      !Array.isArray(state.proposals)
+    ) {
+      return {
+        error:
+          'sesión guardada con un "state" inesperado (falta interviewId, speakerRole, script o proposals) — descártala',
+      };
+    }
+    return { snapshot: parsed as unknown as PersistedInterview };
+  };
+
+  const savedSummary = (snapshot: PersistedInterview): InterviewSavedSession => {
+    const proposals = snapshot.state.proposals;
+    return {
+      interviewId: snapshot.state.interviewId,
+      speakerRole: snapshot.state.speakerRole,
+      savedAt: snapshot.savedAt,
+      turn: snapshot.state.turn,
+      script: snapshot.state.script,
+      scriptIndex: snapshot.state.scriptIndex,
+      finished: snapshot.state.finished,
+      accepted: proposals.filter((p) => p.kind !== 'verification' && p.status === 'accepted').length,
+      pending: proposals.filter((p) => p.kind !== 'verification' && p.status === 'proposed').length,
+      verificationsPending: proposals.filter(
+        (p) => p.kind === 'verification' && p.status === 'proposed',
+      ).length,
+      live: sessions.has(snapshot.state.interviewId),
+    };
+  };
+
+  /** Saved-session summary for the start screen, or null when there is none. */
+  const savedForResponse = (core: CoreModule): InterviewSavedSession | null => {
+    const saved = readSaved(core);
+    if (saved === undefined || 'error' in saved) return null;
+    return savedSummary(saved.snapshot);
   };
 
   /** Route wrapper that additionally resolves @untacit/extractors. */
@@ -152,6 +323,7 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
         gaps,
         verifications,
         llmReady: 'llm' in llm,
+        saved: savedForResponse(core),
       };
       if ('error' in llm) body.llmDetail = llm.error;
       return c.json(body);
@@ -159,8 +331,62 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
   );
 
   // ---------------------------------------------------------------------------
-  // POST /api/interview/start { role } — gap analysis, script generation (LLM),
-  // verification queue, opening agent turn.
+  // GET /api/interview/saved — is there an interrupted session to resume?
+  // Registered before /api/interview/:id so "saved" is not read as an id.
+  // ---------------------------------------------------------------------------
+  app.get(
+    '/api/interview/saved',
+    route((c, core) => {
+      const saved = readSaved(core);
+      if (saved !== undefined && 'error' in saved) {
+        // An unreadable/foreign-version file is a client-fixable situation:
+        // report it so the UI can offer "descartar" instead of hanging on it.
+        return c.json({ error: 'sesión guardada no utilizable', detail: saved.error } satisfies ApiError, 409);
+      }
+      const body: InterviewSavedResponse = {
+        saved: saved === undefined ? null : savedSummary(saved.snapshot),
+      };
+      return c.json(body);
+    }),
+  );
+
+  // ---------------------------------------------------------------------------
+  // DELETE /api/interview/saved — discard the interrupted session (the UI's
+  // "empezar de cero"). Also drops it from memory when it is still live.
+  // ---------------------------------------------------------------------------
+  app.delete(
+    '/api/interview/saved',
+    route((c, core) => {
+      const path = sessionFile(core);
+      const existed = existsSync(path);
+      if (existed) {
+        // Evict the live twin when there is one, but never let a snapshot we
+        // cannot read block its own deletion — discarding it is exactly the
+        // remedy for a corrupt file.
+        try {
+          const saved = readSaved(core);
+          if (saved !== undefined && 'snapshot' in saved) {
+            sessions.delete(saved.snapshot.state.interviewId);
+          }
+        } catch {
+          /* unreadable snapshot: nothing to evict */
+        }
+        rmSync(path, { force: true });
+      }
+      const body: InterviewDiscardResponse = { ok: true, discarded: existed };
+      return c.json(body);
+    }),
+  );
+
+  // ---------------------------------------------------------------------------
+  // POST /api/interview/start { role, model?, discardSaved? } — gap analysis,
+  // script generation (LLM), verification queue, opening agent turn.
+  //
+  // An interrupted session on disk blocks the start with a 409 unless the
+  // caller says `discardSaved: true`: starting over silently overwrites work
+  // that cost a real conversation, and the CLI refuses the same thing without
+  // a typed confirmation. The UI's own gate is a convenience on top — it
+  // disappears if the gaps request fails, so the rule lives here too.
   // ---------------------------------------------------------------------------
   app.post(
     '/api/interview/start',
@@ -170,7 +396,18 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
       if (role === '') {
         return c.json({ error: 'role is required (rol del entrevistado, nunca su nombre)' } satisfies ApiError, 400);
       }
-      const llm = resolveLlm(extractors);
+      if (payload.discardSaved !== true && existsSync(sessionFile(core))) {
+        return c.json(
+          {
+            error: 'hay una entrevista sin terminar en este grafo',
+            detail:
+              'reanúdala (POST /api/interview/resume), descártala (DELETE /api/interview/saved), o empieza de cero con discardSaved: true',
+          } satisfies ApiError,
+          409,
+        );
+      }
+      const model = modelFrom(payload);
+      const llm = resolveLlm(extractors, model);
       if ('error' in llm) {
         return c.json({ error: 'LLM no disponible', detail: llm.error } satisfies ApiError, 503);
       }
@@ -184,9 +421,73 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
       sweepSessions(now);
       const interviewId = `int-${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
       const state = extractors.startInterview(interviewId, role, { script, verifications });
-      sessions.set(interviewId, { state, gaps, lastActivity: now });
+      sessions.set(interviewId, {
+        state,
+        gaps,
+        model: model ?? llm.llm.model,
+        llm: llm.llm,
+        lastActivity: now,
+      });
+      // Save right away: the generated script is real LLM spend and must
+      // survive a crash from the very first write (as the CLI does).
+      saveSession(core, extractors, state);
 
-      const body: InterviewStartResponse = { state: toStateResponse(state), gaps };
+      const body: InterviewStartResponse = {
+        state: toStateResponse(state),
+        gaps,
+        model: model ?? llm.llm.model,
+      };
+      return c.json(body);
+    }),
+  );
+
+  // ---------------------------------------------------------------------------
+  // POST /api/interview/resume { model? } — rebuild the interrupted session
+  // from disk. The transcript restarts with the engine's recap turn: it was
+  // never persisted, and that recap is all the anchoring the turn contract
+  // needs. The model is re-picked here, exactly like `--resume --model`.
+  // ---------------------------------------------------------------------------
+  app.post(
+    '/api/interview/resume',
+    interviewRoute(async (c, core, extractors) => {
+      const saved = readSaved(core);
+      if (saved === undefined) {
+        return c.json(
+          {
+            error: 'no hay ninguna sesión de entrevista interrumpida en este grafo',
+          } satisfies ApiError,
+          404,
+        );
+      }
+      if ('error' in saved) {
+        return c.json({ error: 'sesión guardada no utilizable', detail: saved.error } satisfies ApiError, 409);
+      }
+      const payload = (await c.req.json().catch(() => ({}))) as Partial<InterviewResumeRequest>;
+      const model = modelFrom(payload);
+      const llm = resolveLlm(extractors, model);
+      if ('error' in llm) {
+        return c.json({ error: 'LLM no disponible', detail: llm.error } satisfies ApiError, 503);
+      }
+
+      const now = Date.now();
+      sweepSessions(now);
+      const state = extractors.resumeInterview(saved.snapshot);
+      // Gaps are recomputed: the graph may have moved since the session began.
+      const gaps = extractors.findCoverageGaps(getIndex(core), 12);
+      sessions.set(state.interviewId, {
+        state,
+        gaps,
+        model: model ?? llm.llm.model,
+        llm: llm.llm,
+        lastActivity: now,
+      });
+
+      const body: InterviewStartResponse = {
+        state: toStateResponse(state),
+        gaps,
+        model: model ?? llm.llm.model,
+        resumed: true,
+      };
       return c.json(body);
     }),
   );
@@ -201,6 +502,7 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
       const body: InterviewStartResponse = {
         state: toStateResponse(session.state),
         gaps: session.gaps,
+        model: session.model,
       };
       return c.json(body);
     }),
@@ -211,18 +513,19 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
   // ---------------------------------------------------------------------------
   app.post(
     '/api/interview/:id/answer',
-    interviewRoute(async (c, _core, extractors) => {
+    interviewRoute(async (c, core, extractors) => {
       const session = sessionOf(c);
       const payload = (await c.req.json().catch(() => ({}))) as Partial<InterviewAnswerRequest>;
       const text = payload.text?.trim() ?? '';
       if (text === '') {
         return c.json({ error: 'text is required' } satisfies ApiError, 400);
       }
-      const llm = resolveLlm(extractors);
-      if ('error' in llm) {
-        return c.json({ error: 'LLM no disponible', detail: llm.error } satisfies ApiError, 503);
-      }
-      const outcome = await extractors.processAnswer(llm.llm, session.state, text);
+      // The session's own client: the model chosen at start/resume holds for
+      // the whole conversation.
+      const outcome = await extractors.processAnswer(session.llm, session.state, text);
+      // Save after the turn (never the transcript): a crash or a closed window
+      // loses at most the answer in flight.
+      saveSession(core, extractors, session.state);
       const body: InterviewAnswerResponse = {
         reply: outcome.reply,
         // Engine proposals ARE the state objects, already appended to state.
@@ -240,7 +543,7 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
   // ---------------------------------------------------------------------------
   app.post(
     '/api/interview/:id/proposal/:pid',
-    interviewRoute(async (c, _core, extractors) => {
+    interviewRoute(async (c, core, extractors) => {
       const session = sessionOf(c);
       const proposalId = c.req.param('pid') ?? '';
       const payload = (await c.req.json().catch(() => ({}))) as Partial<InterviewProposalRequest>;
@@ -276,6 +579,9 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
         }
         throw err;
       }
+      // Every validation decision is durable: a resumed session skips the
+      // verifications already answered and keeps the accepted triples.
+      saveSession(core, extractors, session.state);
       const body: InterviewProposalResponse = {
         ok: true,
         proposal,
@@ -289,10 +595,11 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
   // ---------------------------------------------------------------------------
   app.post(
     '/api/interview/:id/accept-all',
-    interviewRoute(async (c, _core, extractors) => {
+    interviewRoute(async (c, core, extractors) => {
       const session = sessionOf(c);
       const payload = (await c.req.json().catch(() => ({}))) as Partial<InterviewAcceptAllRequest>;
       const accepted = extractors.acceptAll(session.state, payload.except ?? []);
+      saveSession(core, extractors, session.state);
       const body: InterviewAcceptAllResponse = {
         ok: true,
         accepted: accepted.map((p) => p.id),
@@ -304,8 +611,12 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
 
   // ---------------------------------------------------------------------------
   // POST /api/interview/:id/finish — accepted triples + verdicts → batch →
-  // import pipeline → commit (one run = one commit). The session is dropped;
-  // the transcript is gone on purpose.
+  // import pipeline → commit (one run = one commit). The session is dropped
+  // from memory AND from disk; the transcript is gone on purpose.
+  //
+  // The resumable snapshot is removed only after a successful import: if the
+  // import fails, the session survives so the conversation is not lost to a
+  // problem the user can fix (the CLI behaves the same way).
   // ---------------------------------------------------------------------------
   app.post(
     '/api/interview/:id/finish',
@@ -313,10 +624,13 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
       const session = sessionOf(c);
       const state = session.state;
       const batch = extractors.finishInterview(state);
-      const result = await core.importBatch(repoRoot, batch, {
-        extractor: batch.extractor,
-      });
+      const result = await serializeWrite(() =>
+        core.importBatch(repoRoot, batch, {
+          extractor: batch.extractor,
+        }),
+      );
       sessions.delete(state.interviewId);
+      removeOwnSession(core, state.interviewId);
 
       const body: InterviewFinishResponse = {
         ok: true,

@@ -7,7 +7,7 @@
  * core sources via vitest.config.ts).
  */
 
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as core from '@untacit/core';
@@ -277,4 +277,84 @@ export function createFixtureRepo(): string {
   core.gitCommitAll(root, 'run 2026-07-14T09-00-00-code: add order-created event');
 
   return root;
+}
+
+/** One recorded `claude` invocation: what the client sent, argv and stdin. */
+export interface StubInvocation {
+  argv: string[];
+  stdin: string;
+}
+
+export interface RecordingClaudeStub {
+  /** Path to hand to UNTACIT_CLAUDE_BIN. */
+  bin: string;
+  /** Path to hand to UNTACIT_TEST_STUB_LOG. */
+  argvLog: string;
+  readInvocations: () => StubInvocation[];
+}
+
+/**
+ * A stand-in for the `claude` binary that records every invocation and answers
+ * with a canned completion, so the real ClaudeCodeLlmClient path (print mode,
+ * prompt over stdin, `--tools ""`, no API key anywhere) can be asserted end to
+ * end — not just the injected-mock path.
+ *
+ * Reads `UNTACIT_TEST_STUB_LOG` (where to append invocations) and
+ * `UNTACIT_TEST_STUB_RESULT` (the completion text) from the environment, since
+ * ClaudeCodeLlmClient passes process.env straight through.
+ *
+ * It lives under the graph repo's `.untacit/`, which is gitignored, so writing
+ * it never dirties the working tree the "one run = one commit" tests inspect.
+ */
+export function writeRecordingClaudeStub(
+  repo: string,
+  fallbackResult: object,
+): RecordingClaudeStub {
+  const dir = join(repo, core.INDEX_DIR, 'test-stub');
+  mkdirSync(dir, { recursive: true });
+  const bin = join(dir, 'claude-stub.cjs');
+  const argvLog = join(dir, 'invocations.jsonl');
+  writeFileSync(
+    bin,
+    [
+      "const { appendFileSync } = require('node:fs');",
+      "if (process.argv[2] === '--version') { console.log('9.9.9 (untacit-test-stub)'); process.exit(0); }",
+      "let stdin = '';",
+      "process.stdin.setEncoding('utf8');",
+      "process.stdin.on('data', (chunk) => { stdin += chunk; });",
+      "process.stdin.on('end', () => {",
+      '  const log = process.env.UNTACIT_TEST_STUB_LOG;',
+      "  if (log) appendFileSync(log, JSON.stringify({ argv: process.argv.slice(2), stdin }) + '\\n');",
+      `  const result = process.env.UNTACIT_TEST_STUB_RESULT ?? ${JSON.stringify(
+        JSON.stringify(fallbackResult),
+      )};`,
+      "  process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result }) + '\\n');",
+      '});',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  return {
+    bin,
+    argvLog,
+    readInvocations: () =>
+      existsSync(argvLog)
+        ? readFileSync(argvLog, 'utf8')
+            .split('\n')
+            .filter((line) => line.trim() !== '')
+            .map((line) => JSON.parse(line) as StubInvocation)
+        : [],
+  };
+}
+
+/** Set an env var for the duration of a test, returning its restorer. */
+export function withEnv(vars: Record<string, string>): () => void {
+  const saved = Object.keys(vars).map((name) => [name, process.env[name]] as const);
+  Object.assign(process.env, vars);
+  return () => {
+    for (const [name, value] of saved) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  };
 }
