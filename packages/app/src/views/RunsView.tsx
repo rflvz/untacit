@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { api } from '../api.js';
+import { api, SidecarError } from '../api.js';
 import type {
   ExtractJob,
   ExtractKind,
@@ -323,8 +323,9 @@ function ExtractCard({
       .catch((err: Error) => setError(err.message));
   }, []);
 
-  // Sources on mount, plus any job still running in the sidecar: switching
-  // tabs unmounts this card and must not orphan a live extraction.
+  // Sources on mount, plus the sidecar's newest job: switching tabs unmounts
+  // this card and must neither orphan a live extraction nor lose the result of
+  // one that finished while we were away (jobs list is newest first).
   useEffect(() => {
     loadSources();
     api
@@ -332,7 +333,7 @@ function ExtractCard({
       .then((r) => {
         const running =
           r.jobs.find((j) => j.id === r.runningJobId) ?? r.jobs.find((j) => isActive(j.phase));
-        if (running !== undefined) setJob(running);
+        setJob(running ?? r.jobs[0] ?? null);
       })
       .catch(() => {
         /* the sources error above already covers a sidecar that is not up */
@@ -346,18 +347,39 @@ function ExtractCard({
   const jobPhase = job?.phase;
   useEffect(() => {
     if (jobId === undefined || jobPhase === undefined || !isActive(jobPhase)) return;
+    // One request at a time, and the terminal transition handled once: the
+    // interval does not wait for its own response, so without these two guards
+    // a slow sidecar would stack requests and fire onImported repeatedly.
+    let inFlight = false;
+    let settled = false;
     const timer = setInterval(() => {
+      if (inFlight || settled) return;
+      inFlight = true;
       api
         .extractJob(jobId)
         .then((next) => {
           setJob(next);
           if (!isActive(next.phase)) {
+            settled = true;
             // A run landed: refresh the history/stats and unlock the launcher.
             if (next.result !== undefined && !next.result.noop) onImported();
             loadSources();
           }
         })
-        .catch((err: Error) => setError(err.message));
+        .catch((err: SidecarError | Error) => {
+          setError(err.message);
+          // The sidecar no longer knows this job (swept, or restarted): stop
+          // following it, or the launcher stays disabled forever behind a job
+          // that can never reach a terminal phase.
+          if (err instanceof SidecarError && err.status === 404) {
+            settled = true;
+            setJob(null);
+            loadSources();
+          }
+        })
+        .finally(() => {
+          inFlight = false;
+        });
     }, 900);
     return () => clearInterval(timer);
   }, [jobId, jobPhase, onImported, loadSources]);
@@ -666,11 +688,18 @@ function JobPanel({ job, onGoToReview }: { job: ExtractJob; onGoToReview: () => 
           {job.batchAvailable && (
             <>
               {' '}
-              El batch extraído sigue disponible:{' '}
+              El batch extraído no se ha perdido:{' '}
               <a className="mono" href={api.extractBatchUrl(job.id)} target="_blank" rel="noreferrer">
                 descargarlo
               </a>{' '}
-              e importarlo abajo cuando arregles el problema.
+              e importarlo abajo cuando arregles el problema
+              {job.rescuePath !== undefined && (
+                <>
+                  {' '}
+                  (también está guardado en <code className="mono">{job.rescuePath}</code>)
+                </>
+              )}
+              .
             </>
           )}
         </div>

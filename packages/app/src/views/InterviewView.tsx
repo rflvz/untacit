@@ -105,6 +105,13 @@ function StartScreen({ onStarted }: { onStarted: (s: InterviewStateResponse) => 
   const [error, setError] = useState<string | null>(null);
   /** Interrupted session on disk; undefined until the first check answers. */
   const [saved, setSaved] = useState<InterviewSavedSession | null | undefined>(undefined);
+  /**
+   * Set when a snapshot exists but cannot be used (unknown version, corrupt
+   * file): /saved answers 409 while /gaps just reports null. It has to be
+   * surfaced with its own Descartar, because the sidecar refuses to start a new
+   * interview while any snapshot is on disk.
+   */
+  const [unusable, setUnusable] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -114,9 +121,13 @@ function StartScreen({ onStarted }: { onStarted: (s: InterviewStateResponse) => 
         setSaved(result.saved);
       })
       .catch((err: Error) => setError(err.message));
-    // An unusable snapshot (unknown version, corrupt file) 409s on /saved
-    // while /gaps just reports null — surface it so "descartar" is reachable.
-    api.interviewSaved().catch((err: Error) => setError(err.message));
+    api
+      .interviewSaved()
+      .then(() => setUnusable(null))
+      .catch((err: Error) => {
+        if (err instanceof SidecarError && err.status === 409) setUnusable(err.message);
+        else setError(err.message);
+      });
   }, []);
 
   const start = async () => {
@@ -154,12 +165,17 @@ function StartScreen({ onStarted }: { onStarted: (s: InterviewStateResponse) => 
     try {
       await api.interviewDiscardSaved();
       setSaved(null);
+      setUnusable(null);
     } catch (err) {
       setError(err instanceof SidecarError ? err.message : String(err));
     } finally {
       setBusy(null);
     }
   };
+
+  // Anything on disk blocks a fresh start — the sidecar enforces the same rule
+  // with a 409, so the form must not invite a request that cannot succeed.
+  const blockedBySaved = saved != null || unusable !== null;
 
   return (
     <div className="page">
@@ -170,6 +186,23 @@ function StartScreen({ onStarted }: { onStarted: (s: InterviewStateResponse) => 
           title="Entrevista agéntica"
           lead="El agente consulta el grafo, detecta zonas de baja cobertura y pregunta a quien de verdad sabe cómo funciona la empresa."
         />
+
+        {unusable !== null && (
+          <GlassCard pad="22px 28px" style={{ maxWidth: 680, marginBottom: 18 }}>
+            <h3 className="settings-title">Sesión guardada no utilizable</h3>
+            <p style={{ margin: '0 0 8px', color: 'var(--text-body-card)', fontSize: 13.5 }}>
+              Hay un fichero de sesión en <code className="mono">.untacit/interview-session.json</code>{' '}
+              que esta versión no sabe leer ({unusable}). Mientras esté ahí no se puede empezar una
+              entrevista nueva: descártalo, o actualiza untacit si lo escribió una versión más
+              reciente.
+            </p>
+            <div className="interview-resume">
+              <Button size="sm" variant="glass" disabled={busy !== null} onClick={() => void discard()}>
+                {busy === 'discard' ? 'Descartando…' : 'Descartar la sesión guardada'}
+              </Button>
+            </div>
+          </GlassCard>
+        )}
 
         {saved !== undefined && saved !== null && (
           <GlassCard pad="22px 28px" style={{ maxWidth: 680, marginBottom: 18 }}>
@@ -214,10 +247,11 @@ function StartScreen({ onStarted }: { onStarted: (s: InterviewStateResponse) => 
           {/* A saved session blocks a fresh start on purpose: "Comenzar" would
               overwrite it, and the CLI asks for confirmation before doing that.
               Reanudar or Descartar above decides it explicitly. */}
-          {saved !== undefined && saved !== null && (
+          {blockedBySaved && (
             <div className="dim" style={{ marginBottom: 8, fontSize: 12.5 }}>
-              Hay una entrevista sin terminar: reanúdala o descártala arriba antes de empezar una
-              nueva (empezar de cero la sobrescribiría).
+              {unusable !== null
+                ? 'Descarta arriba la sesión guardada que no se puede leer antes de empezar una nueva.'
+                : 'Hay una entrevista sin terminar: reanúdala o descártala arriba antes de empezar una nueva (empezar de cero la sobrescribiría).'}
             </div>
           )}
           <label className="dim" htmlFor="interview-role" style={{ fontSize: 13 }}>
@@ -237,7 +271,7 @@ function StartScreen({ onStarted }: { onStarted: (s: InterviewStateResponse) => 
                   role.trim() !== '' &&
                   busy === null &&
                   gaps?.llmReady !== false &&
-                  !(saved !== undefined && saved !== null)
+                  !blockedBySaved
                 ) {
                   void start();
                 }
@@ -246,10 +280,7 @@ function StartScreen({ onStarted }: { onStarted: (s: InterviewStateResponse) => 
             <Button
               size="sm"
               disabled={
-                busy !== null ||
-                role.trim() === '' ||
-                gaps?.llmReady === false ||
-                (saved !== undefined && saved !== null)
+                busy !== null || role.trim() === '' || gaps?.llmReady === false || blockedBySaved
               }
               onClick={() => void start()}
             >

@@ -17,6 +17,7 @@ import type { PersistedInterview } from '@untacit/extractors';
 import type { Hono } from 'hono';
 import type {
   ApiError,
+  InterviewAcceptAllResponse,
   InterviewAnswerResponse,
   InterviewDiscardResponse,
   InterviewFinishResponse,
@@ -60,6 +61,19 @@ const SCRIPT_RESPONSE = {
 /** The agent's conversational reply: purely transcript, never persistable. */
 const AGENT_REPLY = '¿Y qué ocurre exactamente si el cobro falla?';
 
+/**
+ * What the interviewee types. Deliberately NOT byte-identical to the evidence
+ * excerpt below, and carrying a sentence the excerpt does not quote: an excerpt
+ * ≤300 chars is supposed to reach disk, the rest of the answer is not, and with
+ * the two identical a leak of the whole answer would be undetectable.
+ */
+const INTERVIEWEE_ANSWER =
+  'La facturación la hago yo entera a fin de mes. Y entre nosotros, a Pepe le pasamos las de Acme sin revisar.';
+/** The part of that answer the agent quoted as evidence — this one may persist. */
+const EVIDENCE_EXCERPT = 'La facturación la hago yo entera a fin de mes.';
+/** The part that is pure conversation and must never reach disk. */
+const OFF_THE_RECORD = 'a Pepe le pasamos las de Acme sin revisar';
+
 const TURN_1 = {
   run_id: 'pending',
   source_type: 'interview',
@@ -73,7 +87,7 @@ const TURN_1 = {
       description: 'Emisión de facturas al cierre de mes.',
       evidence: {
         locator: { interview_id: 'x', speaker_role: 'administracion', turn: 1 },
-        excerpt: 'La facturación la hago yo entera a fin de mes.',
+        excerpt: EVIDENCE_EXCERPT,
       },
     },
   ],
@@ -106,18 +120,22 @@ describe('interview session persistence and resume', () => {
     expect('transcript' in afterStart.state).toBe(false);
 
     await postJson<InterviewAnswerResponse>(app, `/api/interview/${id}/answer`, {
-      text: 'La facturación la hago yo entera a fin de mes.',
+      text: INTERVIEWEE_ANSWER,
     });
 
     const afterTurn = readSnapshot(repo);
     expect(afterTurn.state.turn).toBe(1);
     expect(afterTurn.state.proposals.some((p) => p.kind === 'node')).toBe(true);
     expect('transcript' in afterTurn.state).toBe(false);
-    // The agent's conversational reply is nowhere in the file. Evidence
-    // excerpts (≤300 chars) are, by design — that is what an import stores.
+
     const raw = readFileSync(sessionPath, 'utf8');
+    // Neither side of the conversation is in the file: not the agent's reply,
+    // and not the interviewee's answer — only the excerpt the agent quoted as
+    // evidence, which is what an import materializes anyway (≤300 chars).
     expect(raw).not.toContain(AGENT_REPLY);
-    expect(raw).toContain('La facturación la hago yo entera a fin de mes.');
+    expect(raw).not.toContain(INTERVIEWEE_ANSWER);
+    expect(raw).not.toContain(OFF_THE_RECORD);
+    expect(raw).toContain(EVIDENCE_EXCERPT);
 
     // And the snapshot lives under .untacit/, so it is never committed.
     expect(sessionPath.includes(core.INDEX_DIR)).toBe(true);
@@ -140,15 +158,28 @@ describe('interview session persistence and resume', () => {
     expect(readSnapshot(repo).state.proposals.find((p) => p.id === 'v1')!.status).toBe('confirmed');
 
     await postJson<InterviewAnswerResponse>(app, `/api/interview/${id}/answer`, {
-      text: 'La facturación la hago yo entera a fin de mes.',
+      text: INTERVIEWEE_ANSWER,
     });
-    await postJson<InterviewProposalResponse>(app, `/api/interview/${id}/proposal/p1`, {
-      action: 'accept',
-    });
-    expect(readSnapshot(repo).state.proposals.find((p) => p.id === 'p1')!.status).toBe('accepted');
+    expect(readSnapshot(repo).state.proposals.find((p) => p.id === 'p1')!.status).toBe('proposed');
 
-    await postJson<{ accepted: string[] }>(app, `/api/interview/${id}/accept-all`, {});
+    // A correction persists too, not just a status flip.
+    await postJson<InterviewProposalResponse>(app, `/api/interview/${id}/proposal/p1`, {
+      action: 'edit',
+      patch: { name: 'Facturación de fin de mes' },
+    });
+    expect(readSnapshot(repo).state.proposals.find((p) => p.id === 'p1')!.node!.name).toBe(
+      'Facturación de fin de mes',
+    );
+
+    // And accept-all is what flips it: p1 is still pending when it runs.
+    const bulk = await postJson<InterviewAcceptAllResponse>(
+      app,
+      `/api/interview/${id}/accept-all`,
+      {},
+    );
+    expect(bulk.accepted).toEqual(['p1']);
     const snapshot = readSnapshot(repo);
+    expect(snapshot.state.proposals.find((p) => p.id === 'p1')!.status).toBe('accepted');
     expect(
       snapshot.state.proposals.filter((p) => p.kind !== 'verification' && p.status === 'proposed'),
     ).toHaveLength(0);
@@ -163,7 +194,7 @@ describe('interview session persistence and resume', () => {
     });
     const id = started.state.interviewId;
     await postJson<InterviewAnswerResponse>(first, `/api/interview/${id}/answer`, {
-      text: 'La facturación la hago yo entera a fin de mes.',
+      text: INTERVIEWEE_ANSWER,
     });
 
     // A new app = the app reopened (or the repo switched back): memory is gone.
@@ -215,7 +246,7 @@ describe('interview session persistence and resume', () => {
     });
     const id = started.state.interviewId;
     await postJson<InterviewAnswerResponse>(first, `/api/interview/${id}/answer`, {
-      text: 'La facturación la hago yo entera a fin de mes.',
+      text: INTERVIEWEE_ANSWER,
     });
 
     const reopened = createApp({ repoRoot: repo, llm: new MockLlmClient([]) });
@@ -245,7 +276,7 @@ describe('interview session persistence and resume', () => {
     });
     const id = started.state.interviewId;
     await postJson<InterviewAnswerResponse>(app, `/api/interview/${id}/answer`, {
-      text: 'La facturación la hago yo entera a fin de mes.',
+      text: INTERVIEWEE_ANSWER,
     });
     await postJson<{ accepted: string[] }>(app, `/api/interview/${id}/accept-all`, {});
 
@@ -265,6 +296,63 @@ describe('interview session persistence and resume', () => {
     const saved = (await getJson<InterviewSavedResponse>(app, '/api/interview/saved')).saved!;
     expect(saved.interviewId).toBe(id);
     expect(saved.accepted).toBe(1);
+  });
+
+  it('refuses to start over an interrupted session unless told to discard it', async () => {
+    const repo = createFixtureRepo();
+    const app = createApp({
+      repoRoot: repo,
+      llm: new MockLlmClient([SCRIPT_RESPONSE, SCRIPT_RESPONSE, SCRIPT_RESPONSE]),
+    });
+
+    const first = await postJson<InterviewStartResponse>(app, '/api/interview/start', {
+      role: 'administracion',
+    });
+
+    // Starting again would overwrite work that cost a real conversation, which
+    // the CLI refuses without a typed confirmation. The 409 says what to do.
+    const blocked = await postJson<ApiError>(
+      app,
+      '/api/interview/start',
+      { role: 'produccion' },
+      409,
+    );
+    expect(blocked.error).toContain('sin terminar');
+    expect(blocked.detail).toContain('resume');
+    expect(blocked.detail).toContain('discardSaved');
+    // Nothing changed: the original session is still the resumable one.
+    expect(readSnapshot(repo).state.interviewId).toBe(first.state.interviewId);
+    expect(readSnapshot(repo).state.speakerRole).toBe('administracion');
+
+    // Explicit opt-in replaces it.
+    const replaced = await postJson<InterviewStartResponse>(app, '/api/interview/start', {
+      role: 'produccion',
+      discardSaved: true,
+    });
+    expect(replaced.state.interviewId).not.toBe(first.state.interviewId);
+    expect(readSnapshot(repo).state.speakerRole).toBe('produccion');
+
+    // So does discarding first (what the app's Descartar button does).
+    await sendJson<InterviewDiscardResponse>(app, 'DELETE', '/api/interview/saved');
+    const afterDiscard = await postJson<InterviewStartResponse>(app, '/api/interview/start', {
+      role: 'gerencia',
+    });
+    expect(afterDiscard.state.speakerRole).toBe('gerencia');
+  });
+
+  it('rejects a model id that could reach the shell as argv', async () => {
+    const repo = createFixtureRepo();
+    const app = createApp({ repoRoot: repo, llm: new MockLlmClient([SCRIPT_RESPONSE]) });
+
+    const body = await postJson<ApiError>(
+      app,
+      '/api/interview/start',
+      { role: 'administracion', model: 'opus | rm -rf /' },
+      400,
+    );
+    expect(body.error).toContain('model');
+    // The rejected request must not have left a session behind.
+    expect(existsSync(core.interviewSessionPath(repo))).toBe(false);
   });
 
   it('discards the saved session on request', async () => {
@@ -322,7 +410,7 @@ describe('interview session persistence and resume', () => {
     });
     const id = started.state.interviewId;
     await postJson<InterviewAnswerResponse>(app, `/api/interview/${id}/answer`, {
-      text: 'La facturación la hago yo entera a fin de mes.',
+      text: INTERVIEWEE_ANSWER,
     });
     await postJson<{ accepted: string[] }>(app, `/api/interview/${id}/accept-all`, {});
 
@@ -364,7 +452,7 @@ describe('interview session persistence and resume', () => {
     });
     expect(resumed.model).toBe('haiku');
 
-    // And with the real client (no injected mock), the model lands in the CLI
+    // And with the real client (no injected mock), the model reaches the CLI
     // invocation — a fresh repo so this app builds its own engine client.
     const repo2 = createFixtureRepo();
     const engine = createApp({ repoRoot: repo2 });
@@ -381,10 +469,34 @@ describe('interview session persistence and resume', () => {
       });
       expect(engineStart.model).toBe('sonnet');
       expect(engineStart.state.script).toEqual(SCRIPT_RESPONSE.questions);
-      const argv = stub.readInvocations()[0]!.argv;
-      expect(argv[argv.indexOf('--model') + 1]).toBe('sonnet');
+      const startArgv = stub.readInvocations()[0]!.argv;
+      expect(startArgv[startArgv.indexOf('--model') + 1]).toBe('sonnet');
       // No API key path anywhere: the engine is the local binary in print mode.
-      expect(argv).toContain('--print');
+      expect(startArgv).toContain('--print');
+
+      // Resume with a different model, then take a turn: the model chosen at
+      // resume is the one the conversation actually runs on from then on.
+      const reopenedEngine = createApp({ repoRoot: repo2 });
+      const engineResume = await postJson<InterviewStartResponse>(
+        reopenedEngine,
+        '/api/interview/resume',
+        { model: 'haiku' },
+      );
+      expect(engineResume.model).toBe('haiku');
+
+      process.env.UNTACIT_TEST_STUB_RESULT = JSON.stringify(TURN_1);
+      await postJson<InterviewAnswerResponse>(
+        reopenedEngine,
+        `/api/interview/${engineResume.state.interviewId}/answer`,
+        { text: INTERVIEWEE_ANSWER },
+      );
+      const invocations = stub.readInvocations();
+      expect(invocations).toHaveLength(2);
+      const turnArgv = invocations[1]!.argv;
+      expect(turnArgv[turnArgv.indexOf('--model') + 1]).toBe('haiku');
+      // The answer travelled over stdin, never in argv (and never to a disk log).
+      expect(invocations[1]!.stdin).toContain(INTERVIEWEE_ANSWER);
+      expect(turnArgv.join(' ')).not.toContain(INTERVIEWEE_ANSWER);
     } finally {
       restore();
     }

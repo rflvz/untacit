@@ -455,6 +455,11 @@ export interface ExtractJob {
   error?: string;
   /** True while the emitted batch is retrievable at /api/extract/:id/batch. */
   batchAvailable: boolean;
+  /**
+   * Where a failed import's batch was rescued to (under the repo's gitignored
+   * `.untacit/`), so the LLM spend survives the job's in-memory lifetime.
+   */
+  rescuePath?: string;
 }
 
 /** POST /api/extract — 202 with the freshly created job. */
@@ -579,6 +584,11 @@ export interface InterviewStartRequest {
   role: string;
   /** Model for the interviewer agent (`claude --model`, the CLI's --model). */
   model?: string;
+  /**
+   * Overwrite an interrupted session instead of refusing. Without it, a saved
+   * snapshot makes start answer 409 — that work cost a real conversation.
+   */
+  discardSaved?: boolean;
 }
 
 /** Body of POST /api/interview/resume — re-pick the model, like the CLI. */

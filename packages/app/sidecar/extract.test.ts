@@ -6,7 +6,8 @@
  * "Claude Code is not installed" path.
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as core from '@untacit/core';
@@ -20,6 +21,7 @@ import type {
   ExtractPreviewResponse,
   ExtractSourcesResponse,
   ExtractStartResponse,
+  ImportResponse,
   MergeActionResponse,
   RunsResponse,
 } from '../src/api-types.js';
@@ -137,8 +139,12 @@ const DOCS_BATCH = {
 
 const TERMINAL = ['done', 'error', 'cancelled'];
 
-/** Poll a job until it reaches a terminal phase (what the UI does). */
-async function waitForJob(app: Hono, id: string, timeoutMs = 15_000): Promise<ExtractJob> {
+/**
+ * Poll a job until it reaches a terminal phase (what the UI does). The deadline
+ * stays under vitest's 5 s default so the diagnostic below actually fires
+ * instead of the runner killing the test with a generic timeout.
+ */
+async function waitForJob(app: Hono, id: string, timeoutMs = 4_000): Promise<ExtractJob> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const job = await getJson<ExtractJob>(app, `/api/extract/${id}`);
@@ -329,12 +335,20 @@ describe('extraction over the sidecar', () => {
     addCodeSource(repo);
     let app: Hono;
     let jobId = '';
+    // The job runs detached, so the first LLM call can start before the 202 has
+    // even been parsed. Block it until the test knows the job id, then cancel
+    // from inside the call: deterministic, no race with the scheduler.
+    let announceJobId = (): void => {};
+    const jobIdKnown = new Promise<void>((resolve) => {
+      announceJobId = resolve;
+    });
     const llm = new HookedLlmClient(
       () => codeBatch('Prepago de clientes nuevos', 'src/pricing.ts'),
       async (call) => {
         // Cancel while the first chunk is in flight: the wrapper aborts before
         // the second one, so exactly one call is ever spent.
-        if (call === 1 && jobId !== '') {
+        if (call === 1) {
+          await jobIdKnown;
           await postJson<ExtractJob>(app, `/api/extract/${jobId}/cancel`);
         }
       },
@@ -348,6 +362,7 @@ describe('extraction over the sidecar', () => {
       202,
     );
     jobId = started.job.id;
+    announceJobId();
 
     const job = await waitForJob(app, jobId);
     expect(job.phase).toBe('cancelled');
@@ -448,6 +463,140 @@ describe('extraction over the sidecar', () => {
 
     release();
     await waitForJob(app, started.job.id);
+  });
+
+  it('pins the SOURCE repo commit and its config name, not the graph repo (invariant 5)', async () => {
+    const repo = createFixtureRepo();
+    // A source repo of its own, outside the graph repo, with its own history:
+    // the fixture's in-tree source would hide a source/graph-repo confusion,
+    // because both would resolve to the same HEAD.
+    const sourceRoot = mkdtempSync(join(tmpdir(), 'untacit-source-'));
+    mkdirSync(join(sourceRoot, 'src'), { recursive: true });
+    writeFileSync(
+      join(sourceRoot, 'src', 'pricing.ts'),
+      [
+        'export function precioFinal(pedido: Pedido, cliente: Cliente): number {',
+        '  if (cliente.esNuevo && !pedido.prepagado) {',
+        "    throw new Error('no se puede servir un pedido sin prepago');",
+        '  }',
+        '  return pedido.importe;',
+        '}',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    core.gitInit(sourceRoot);
+    core.gitCommitAll(sourceRoot, 'initial');
+    const sourceHead = core.gitRevParse(sourceRoot, 'HEAD');
+    const graphHead = core.gitRevParse(repo, 'HEAD');
+    expect(sourceHead).not.toBe(graphHead);
+
+    const config = core.loadConfig(repo);
+    config.sources.code = [{ name: 'erp-externo', path: sourceRoot }];
+    core.saveConfig(repo, config);
+
+    const llm = new MockLlmClient([
+      {
+        ...codeBatch('Prepago de clientes nuevos', 'src/pricing.ts'),
+        nodes: [
+          {
+            mention: 'Prepago de clientes nuevos',
+            type: 'rule',
+            name: 'Prepago de clientes nuevos',
+            description: 'Un cliente nuevo no recibe mercancía sin prepago.',
+            evidence: {
+              locator: {
+                repo: 'erp-externo',
+                path: 'src/pricing.ts',
+                line_start: 1,
+                line_end: 6,
+                commit: sourceHead.slice(0, 12),
+              },
+              excerpt: 'if (cliente.esNuevo && !pedido.prepagado) throw new Error(...)',
+            },
+          },
+        ],
+        edges: [],
+      },
+    ]);
+    const app = createApp({ repoRoot: repo, llm });
+
+    const started = await postJson<ExtractStartResponse>(
+      app,
+      '/api/extract',
+      { kind: 'code', source: 'erp-externo' },
+      202,
+    );
+    const job = await waitForJob(app, started.job.id);
+    expect(job.phase).toBe('done');
+
+    // The prompt pinned the SOURCE repo's HEAD as the locator base — that is
+    // what makes the evidence point at the code that was actually read.
+    const prompt = llm.requests[0]!.prompt;
+    expect(prompt).toContain(sourceHead.slice(0, 12));
+    expect(prompt).not.toContain(graphHead.slice(0, 12));
+    // And the locator carries the config source *name*, which is what
+    // POST /api/open matches on (a directory basename would break it).
+    expect(prompt).toContain('"repo":"erp-externo"');
+
+    const store = core.GraphStore.load(repo);
+    const created = [...store.nodes.values()].find((n) => n.name === 'Prepago de clientes nuevos')!;
+    expect(created.evidence[0]!.locator).toMatchObject({
+      repo: 'erp-externo',
+      commit: sourceHead.slice(0, 12),
+    });
+  });
+
+  // The queue's ordering guarantee itself is asserted in write-queue.test.ts —
+  // whether two importBatch calls would really interleave depends on where the
+  // pipeline yields, so this is the end-to-end smoke test, not the proof.
+  it('lands two concurrent imports as two runs, two commits and a clean tree', async () => {
+    const repo = createFixtureRepo();
+    const app = createApp({ repoRoot: repo, llm: new MockLlmClient([]) });
+
+    const batch = (n: number) => ({
+      run_id: `2026-07-25T10-0${n}-00-document`,
+      source_type: 'document',
+      extractor: { name: 'test', model: 'test', prompt_version: '1' },
+      nodes: [
+        {
+          mention: `Politica ${n}`,
+          type: 'policy',
+          name: `Politica ${n}`,
+          description: `Norma numero ${n} para la prueba de concurrencia.`,
+          evidence: {
+            locator: {
+              doc_id: 'manual-comercial',
+              title: 'Manual comercial',
+              section: `2. 4.${n} Pagos`,
+            },
+            excerpt: `Texto de respaldo de la norma ${n}.`,
+          },
+        },
+      ],
+      edges: [],
+    });
+
+    // Both land on GraphStore.load → write → commit. Without the write queue in
+    // createApp they interleave: the second load snapshots the files before the
+    // first has written them, and one of the two nodes is lost.
+    const results = await Promise.all([
+      postJson<ImportResponse>(app, '/api/import', { batch: batch(1) }),
+      postJson<ImportResponse>(app, '/api/import', { batch: batch(2) }),
+    ]);
+    expect(results.map((r) => r.ok)).toEqual([true, true]);
+    expect(results[0]!.commit).not.toBe(results[1]!.commit);
+
+    // Both runs are recorded and both nodes survived.
+    const runs = await getJson<RunsResponse>(app, '/api/runs');
+    for (const n of [1, 2]) {
+      expect(runs.runs.some((r) => r.id === `2026-07-25T10-0${n}-00-document`)).toBe(true);
+    }
+    const store = core.GraphStore.load(repo);
+    const names = [...store.nodes.values()].map((node) => node.name);
+    expect(names).toContain('Politica 1');
+    expect(names).toContain('Politica 2');
+    expect(core.gitStatusClean(repo)).toBe(true);
   });
 
   it('does not lock out other graph writes while the agent is thinking', async () => {
@@ -575,24 +724,126 @@ describe('extraction over the sidecar', () => {
     await getJson<ApiError>(app, `/api/extract/${empty.job.id}/batch`, 404);
   });
 
-  it('reports a bad include/exclude in the config as a client error', async () => {
+  it("honors the config's include/exclude as globs, keeping the scanner's own guards", async () => {
     const repo = createFixtureRepo();
     addCodeSource(repo);
+    const src = join(repo, 'sources', 'web-pedidos', 'src');
+    // Excluded by the config glob.
+    mkdirSync(join(src, 'infra'), { recursive: true });
+    writeFileSync(
+      join(src, 'infra', 'logging.ts'),
+      'export function calcularLatencia(pedido: Pedido) { return 0; }\n',
+      'utf8',
+    );
+    // Selected by the include glob, but the scanner's DEFAULT_EXCLUDE still
+    // drops it (…/test/…): a config exclude must not disable those guards.
+    writeFileSync(
+      join(src, 'checkout.test.ts'),
+      'if (cliente.esNuevo && !pedido.prepagado) throw new Error("x");\n',
+      'utf8',
+    );
+    // Never scanned: SKIP_DIRS and DEFAULT_EXCLUDE both cover node_modules.
+    mkdirSync(join(repo, 'sources', 'web-pedidos', 'node_modules', 'x'), { recursive: true });
+    writeFileSync(
+      join(repo, 'sources', 'web-pedidos', 'node_modules', 'x', 'index.ts'),
+      'if (cliente.esNuevo) throw new Error("no se puede");\n',
+      'utf8',
+    );
+    core.gitCommitAll(repo, 'test: extra sources');
+
+    // Exactly the shape examples/acme-manufactura/untacit.config.json uses.
     const config = core.loadConfig(repo);
     config.sources.code = [
-      { name: 'web-pedidos', path: 'sources/web-pedidos', include: ['\\.(ts'] },
+      {
+        name: 'web-pedidos',
+        path: 'sources/web-pedidos',
+        include: ['src/**/*.ts'],
+        exclude: ['src/infra/**'],
+      },
     ];
     core.saveConfig(repo, config);
     const app = createApp({ repoRoot: repo, llm: new MockLlmClient([]) });
 
+    const preview = await postJson<ExtractPreviewResponse>(app, '/api/extract/preview', {
+      kind: 'code',
+      source: 'web-pedidos',
+    });
+    expect(preview.candidates?.map((cand) => cand.path).sort()).toEqual([
+      'src/facturacion.ts',
+      'src/pricing.ts',
+    ]);
+  });
+
+  it('refuses a paths entry that escapes the source root', async () => {
+    const repo = createFixtureRepo();
+    addCodeSource(repo);
+    const app = createApp({ repoRoot: repo, llm: new MockLlmClient([]) });
+
+    for (const path of ['../..', '../../etc', '/etc']) {
+      const body = await postJson<ApiError>(
+        app,
+        '/api/extract/preview',
+        { kind: 'code', source: 'web-pedidos', paths: [path] },
+        400,
+      );
+      expect(body.error).toContain('escapes the source root');
+    }
+    // A legitimate scope still works.
+    const scoped = await postJson<ExtractPreviewResponse>(app, '/api/extract/preview', {
+      kind: 'code',
+      source: 'web-pedidos',
+      paths: ['src/pricing.ts'],
+    });
+    expect(scoped.candidates?.map((cand) => cand.path)).toEqual(['src/pricing.ts']);
+  });
+
+  it('clamps a chunk size of 0 instead of looping forever on LLM calls', async () => {
+    const repo = createFixtureRepo();
+    addCodeSource(repo);
+    const llm = new MockLlmClient([codeBatch('Prepago de clientes nuevos', 'src/pricing.ts')]);
+    const app = createApp({ repoRoot: repo, llm });
+
+    const preview = await postJson<ExtractPreviewResponse>(app, '/api/extract/preview', {
+      kind: 'code',
+      source: 'web-pedidos',
+      chunkSize: 0,
+    });
+    // 0 would make Math.ceil(units / 0) === Infinity; clamped to the default 8.
+    expect(preview.chunkSize).toBe(8);
+    expect(preview.plannedCalls).toBe(1);
+
+    const started = await postJson<ExtractStartResponse>(
+      app,
+      '/api/extract',
+      { kind: 'code', source: 'web-pedidos', chunkSize: 0 },
+      202,
+    );
+    expect(started.job.chunkSize).toBe(8);
+    const job = await waitForJob(app, started.job.id);
+    expect(job.phase).toBe('done');
+    expect(job.llmCalls).toBe(1);
+  });
+
+  it('rejects a model id that could reach the shell as argv', async () => {
+    const repo = createFixtureRepo();
+    const app = createApp({ repoRoot: repo, llm: new MockLlmClient([]) });
+
     const body = await postJson<ApiError>(
       app,
-      '/api/extract/preview',
-      { kind: 'code', source: 'web-pedidos' },
+      '/api/extract',
+      { kind: 'docs', source: 'sources/docs', model: 'sonnet & calc.exe' },
       400,
     );
-    expect(body.error).toContain('not a valid regular expression');
-    expect(body.error).toContain('code[].include');
+    expect(body.error).toContain('model');
+    // Real ids and aliases pass.
+    const ok = await postJson<ExtractStartResponse>(
+      app,
+      '/api/extract',
+      { kind: 'docs', source: 'sources/docs', model: 'claude-opus-4-5-20251101' },
+      202,
+    );
+    expect(ok.job.model).toBe('claude-opus-4-5-20251101');
+    await waitForJob(app, ok.job.id);
   });
 
   it('reports a source whose path is gone instead of scanning nothing', async () => {

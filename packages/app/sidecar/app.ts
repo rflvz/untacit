@@ -55,6 +55,7 @@ import {
   spawnOpenExecutor,
   type OpenExecutor,
 } from './open.js';
+import { createWriteQueue } from './write-queue.js';
 
 const MAX_GRAPH_NODES = 10_000;
 const MAX_GRAPH_EDGES = 20_000;
@@ -136,29 +137,9 @@ export function createApp(opts: SidecarOptions): Hono {
 
   app.use('/api/*', cors());
 
-  /**
-   * Serialize everything that writes the graph repo.
-   *
-   * Every write ends in a git commit (docs/03 §7 point 3), and two of them
-   * overlapping would race on the git index and on the canonical files a
-   * GraphStore.load had already snapshotted. That used to be near-impossible
-   * (each write was one short click-driven request); extraction jobs changed
-   * it — an import can now land minutes after the request that started it,
-   * while the user accepts a merge or finishes an interview. The sidecar is a
-   * single process, so a promise chain is enough.
-   *
-   * The chain never rejects: each link swallows its own failure so one failed
-   * write cannot poison the queue for the next.
-   */
-  let writeQueue: Promise<unknown> = Promise.resolve();
-  const serializeWrite = <T>(work: () => Promise<T> | T): Promise<T> => {
-    const next = writeQueue.then(work, work);
-    writeQueue = next.then(
-      () => undefined,
-      () => undefined,
-    );
-    return next;
-  };
+  // Everything that writes the graph repo queues here — see write-queue.ts for
+  // why, and write-queue.test.ts for the ordering guarantee it provides.
+  const serializeWrite = createWriteQueue();
 
   /**
    * Wrap a handler: resolve core (503 when unavailable, docs note "core not
@@ -766,21 +747,28 @@ export function createApp(opts: SidecarOptions): Hono {
           );
         }
       }
-      const config = core.loadConfig(repoRoot);
-      if (payload.embeddings !== undefined) {
-        config.embeddings = payload.embeddings;
-        providerPromise = undefined; // reload the provider with the new choice
-      }
-      if (payload.retrieval !== undefined) config.retrieval = payload.retrieval;
-      if (payload.sources !== undefined) config.sources = payload.sources;
-      const commit = await serializeWrite(() => {
-        core.saveConfig(repoRoot, config);
+      // Read-modify-write, so the load must be inside the queue too: with the
+      // load outside it, two concurrent saves would both read the old config
+      // and the second would drop the first one's sections.
+      const { config, commit } = await serializeWrite(() => {
+        const current = core.loadConfig(repoRoot);
+        if (payload.embeddings !== undefined) {
+          current.embeddings = payload.embeddings;
+          providerPromise = undefined; // reload the provider with the new choice
+        }
+        if (payload.retrieval !== undefined) current.retrieval = payload.retrieval;
+        if (payload.sources !== undefined) current.sources = payload.sources;
+        core.saveConfig(repoRoot, current);
         try {
-          return core.isGitRepo(repoRoot)
-            ? core.gitCommitAll(repoRoot, 'untacit: update settings')
-            : null;
+          return {
+            config: current,
+            commit: core.isGitRepo(repoRoot)
+              ? core.gitCommitAll(repoRoot, 'untacit: update settings')
+              : null,
+          };
         } catch {
-          return null; // nothing changed (idempotent save) or no git identity
+          // nothing changed (idempotent save) or no git identity
+          return { config: current, commit: null };
         }
       });
       const body: SettingsUpdateResponse = { ok: true, config, commit };

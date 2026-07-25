@@ -28,8 +28,8 @@
  * never lost to a problem the user can fix and retry.
  */
 
-import { existsSync, readdirSync, statSync } from 'node:fs';
-import { basename, extname, join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { basename, extname, join, relative, resolve, sep } from 'node:path';
 import type { Context, Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type {
@@ -49,6 +49,7 @@ import type {
   ExtractStartResponse,
   ValidationIssue,
 } from '../src/api-types.js';
+import { createEngineProbe, modelFromPayload } from './agent-engine.js';
 import type { CoreModule } from './core-loader.js';
 import { extractorsLoadError, loadExtractors, type ExtractorsModule } from './extractors-loader.js';
 
@@ -78,6 +79,8 @@ const DOC_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.pdf', '.docx']);
 const SKIP_DIRS = /^(node_modules|dist|build|target|\.git|\.untacit|\.venv)$/;
 /** Hard cap on files pulled from one document source (a folder can be huge). */
 const MAX_DOC_FILES = 200;
+/** Hard cap on glob-selected code files handed to scanRepo as `paths`. */
+const MAX_CODE_FILES = 5000;
 /** Default candidates per LLM call (mirrors the CLI's --chunk-size). */
 const DEFAULT_CODE_CHUNK = 8;
 /** Default sections per LLM call (mirrors the CLI's --sections-per-call). */
@@ -142,25 +145,93 @@ class ProgressLlmClient implements LlmClient {
 }
 
 /**
- * `include`/`exclude` of a source config are regex fragments (the only
- * consumer, the extractors' scanRepo, takes RegExp). Joined with `|`, so
- * `["\\.ts$", "\\.py$"]` reads as "either".
+ * `include`/`exclude` of a source config are **globs over the source-relative
+ * path**, the way the repo's own exemplar writes them
+ * (examples/acme-manufactura/untacit.config.json: `src/**` + `*.ts`,
+ * `**` + `*.md`). `**` crosses directory separators, `*` and `?` do not.
+ *
+ * They are matched here rather than handed to the extractors' scanRepo: that
+ * takes RegExps, tests `include` against the bare filename and `exclude`
+ * against the absolute path, and — decisively — *replaces* its own
+ * DEFAULT_EXCLUDE (node_modules, dist, test, vendor…) with whatever it is
+ * given. Filtering first and passing the surviving files as scanRepo's `paths`
+ * keeps those defaults in force and gives the globs the path semantics they
+ * are written for.
  */
-function patternsToRegExp(patterns: string[] | undefined, field: string): RegExp | undefined {
+function globToRegExp(pattern: string): RegExp {
+  let out = '';
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]!;
+    if (ch === '*') {
+      if (pattern[i + 1] === '*') {
+        // `**/` also matches zero directories, so `**/*.md` covers `a.md`.
+        if (pattern[i + 2] === '/') {
+          out += '(?:.*/)?';
+          i += 2;
+        } else {
+          out += '.*';
+          i += 1;
+        }
+      } else {
+        out += '[^/]*';
+      }
+      continue;
+    }
+    if (ch === '?') {
+      out += '[^/]';
+      continue;
+    }
+    out += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${out}$`);
+}
+
+/** Compile a source's glob list once; undefined when it declares none. */
+function compileGlobs(patterns: string[] | undefined): RegExp[] | undefined {
   if (patterns === undefined || patterns.length === 0) return undefined;
-  try {
-    return new RegExp(patterns.join('|'));
-  } catch (err) {
-    throw new Error(
-      `sources.${field} is not a valid regular expression (${patterns.join(' | ')}): ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
+  return patterns.map(globToRegExp);
+}
+
+const matchesAny = (globs: RegExp[] | undefined, relPath: string): boolean =>
+  globs !== undefined && globs.some((glob) => glob.test(relPath));
+
+/** Source-relative POSIX path, the form the globs and locators are written in. */
+function relativeToRoot(root: string, file: string): string {
+  const rel = relative(root, file);
+  return rel === '' ? basename(file) : rel.split(sep).join('/');
+}
+
+/** Selected by the source's globs? No globs at all means "everything". */
+function selectedByGlobs(
+  relPath: string,
+  include: RegExp[] | undefined,
+  exclude: RegExp[] | undefined,
+): boolean {
+  if (include !== undefined && !matchesAny(include, relPath)) return false;
+  return !matchesAny(exclude, relPath);
+}
+
+/**
+ * Reject a request-supplied `paths` entry that would leave the source root.
+ *
+ * scanRepo resolves each entry with `join(rootDir, rel)` and never checks
+ * containment, so `../../etc` would happily be scanned and its contents sent
+ * to the agent. POST /api/open guards the same way for evidence locators; this
+ * is the extraction-side equivalent.
+ */
+function assertInsideRoot(root: string, relPath: string): void {
+  const target = resolve(root, relPath);
+  if (target !== root && !target.startsWith(root + sep)) {
+    throw new Error(`path "${relPath}" escapes the source root ${root}`);
   }
 }
 
 /** Every parseable document under a source folder (or the file itself), sorted. */
-function listDocumentFiles(root: string, include?: RegExp, exclude?: RegExp): string[] {
+function listDocumentFiles(
+  root: string,
+  include?: RegExp[],
+  exclude?: RegExp[],
+): string[] {
   const found: string[] = [];
   // A document source may point at a single file rather than a folder.
   if (statSync(root).isFile()) {
@@ -181,8 +252,7 @@ function listDocumentFiles(root: string, include?: RegExp, exclude?: RegExp): st
         continue;
       }
       if (!DOC_EXTENSIONS.has(extname(entry.name).toLowerCase())) continue;
-      if (include !== undefined && !include.test(full)) continue;
-      if (exclude !== undefined && exclude.test(full)) continue;
+      if (!selectedByGlobs(relativeToRoot(root, full), include, exclude)) continue;
       found.push(full);
     }
   };
@@ -190,9 +260,37 @@ function listDocumentFiles(root: string, include?: RegExp, exclude?: RegExp): st
   return found;
 }
 
-/** Path shown to the user: relative to the source root, never absolute noise. */
-function relativeToRoot(root: string, file: string): string {
-  return file.startsWith(root) ? file.slice(root.length).replace(/^[/\\]/, '') || basename(file) : file;
+/**
+ * Source-relative POSIX paths a code source's globs select, for scanRepo's
+ * `paths`. Returns undefined when the source declares no globs — then scanRepo
+ * walks the whole source itself with its own defaults, exactly like the CLI.
+ */
+function listCodeFiles(
+  root: string,
+  include: RegExp[] | undefined,
+  exclude: RegExp[] | undefined,
+): string[] | undefined {
+  if (include === undefined && exclude === undefined) return undefined;
+  const found: string[] = [];
+  const walk = (dir: string): void => {
+    if (found.length >= MAX_CODE_FILES) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+      a.name < b.name ? -1 : 1,
+    )) {
+      if (found.length >= MAX_CODE_FILES) return;
+      if (entry.name.startsWith('.')) continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (SKIP_DIRS.test(entry.name)) continue;
+        walk(full);
+        continue;
+      }
+      const rel = relativeToRoot(root, full);
+      if (selectedByGlobs(rel, include, exclude)) found.push(rel);
+    }
+  };
+  walk(root);
+  return found;
 }
 
 /** One entry of untacit.config.json's sources, normalized for both kinds. */
@@ -234,8 +332,8 @@ function listSources(repoRoot: string, config: UntacitConfig): ExtractSource[] {
       try {
         row.documentCount = listDocumentFiles(
           resolvedPath,
-          patternsToRegExp(source.include, 'documents[].include'),
-          patternsToRegExp(source.exclude, 'documents[].exclude'),
+          compileGlobs(source.include),
+          compileGlobs(source.exclude),
         ).length;
       } catch {
         // An unreadable folder is reported as "no documents", not a 500: the
@@ -273,15 +371,21 @@ function findSource(
   return { ...source, name: basename(resolve(repoRoot, source.path)) || source.path };
 }
 
-/** Chunk size, clamped: 0 or NaN would loop forever making real LLM calls. */
+/**
+ * Chunk size, clamped. A chunk of 0 (or NaN) would make `Math.ceil(units / 0)`
+ * Infinity and the extractors' `i += chunkSize` loop spin forever spending real
+ * LLM calls, so anything meaningless falls back to the default — which is also
+ * what the UI's "0 = por defecto" input sends.
+ */
 function clampChunk(raw: number | undefined, fallback: number): number {
-  if (raw === undefined || !Number.isFinite(raw)) return fallback;
-  return Math.max(1, Math.min(64, Math.floor(raw)));
+  if (raw === undefined || !Number.isFinite(raw) || raw < 1) return fallback;
+  return Math.min(64, Math.floor(raw));
 }
 
+/** Same contract for the candidate cap: meaningless → the CLI's default. */
 function clampCandidates(raw: number | undefined): number {
-  if (raw === undefined || !Number.isFinite(raw)) return DEFAULT_MAX_CANDIDATES;
-  return Math.max(1, Math.min(500, Math.floor(raw)));
+  if (raw === undefined || !Number.isFinite(raw) || raw < 1) return DEFAULT_MAX_CANDIDATES;
+  return Math.min(500, Math.floor(raw));
 }
 
 /** doc_id per file, deduplicated — two "manual.md" must not share provenance. */
@@ -300,6 +404,9 @@ export function registerExtractRoutes(app: Hono, deps: ExtractRouteDeps): void {
   const { repoRoot, route, serializeWrite } = deps;
   const jobs = new Map<string, JobRecord>();
   let runningJobId: string | null = null;
+  // `claude --version` blocks the event loop: cache it so /sources (polled on
+  // every mount, and after every job) cannot stall a running job's progress.
+  const probeEngine = createEngineProbe();
 
   const sweepJobs = (now: number): void => {
     for (const [id, job] of jobs) {
@@ -352,7 +459,7 @@ export function registerExtractRoutes(app: Hono, deps: ExtractRouteDeps): void {
     if (deps.llm !== undefined) return { llm: deps.llm };
     // Engine = Claude Code: the sidecar drives the local `claude` CLI with
     // whatever authentication it already has. No API key involved.
-    const engine = extractors.claudeCodeAvailable();
+    const engine = probeEngine(extractors);
     if (!engine.ok) return { error: engine.detail };
     return { llm: new extractors.ClaudeCodeLlmClient(model !== undefined ? { model } : {}) };
   };
@@ -372,21 +479,50 @@ export function registerExtractRoutes(app: Hono, deps: ExtractRouteDeps): void {
     for (const listener of job.listeners) listener(frozen);
   };
 
-  /** Heuristic candidate scan over a code source (no LLM). */
+  /**
+   * Heuristic candidate scan over a code source (no LLM).
+   *
+   * `repoName` is the config source *name*, not the directory basename the CLI
+   * defaults to: it is the value POST /api/open matches locators against
+   * (`sources.code[].name`), so using anything else would make every locator
+   * this run emits unopenable from the detail panel.
+   */
   const scanCode = (
     extractors: ExtractorsModule,
     root: string,
     source: ResolvedSource,
     opts: { maxCandidates?: number; paths?: string[] },
   ): Candidate[] => {
-    const include = patternsToRegExp(source.include, 'code[].include');
-    const exclude = patternsToRegExp(source.exclude, 'code[].exclude');
+    const globbed = listCodeFiles(root, compileGlobs(source.include), compileGlobs(source.exclude));
+    // A request may narrow the run further (partial re-extraction, docs/03 §5).
+    // Every entry is checked for containment: scanRepo does not do it.
+    let requested: string[] | undefined;
+    if (Array.isArray(opts.paths) && opts.paths.length > 0) {
+      for (const rel of opts.paths) {
+        if (typeof rel !== 'string' || rel.trim() === '') {
+          throw new Error('"paths" must have non-empty string entries');
+        }
+        assertInsideRoot(root, rel);
+      }
+      requested = opts.paths;
+    }
+    // Both present → intersect: a requested dir keeps the glob-selected files
+    // under it, a requested file must itself be glob-selected.
+    const paths =
+      globbed !== undefined && requested !== undefined
+        ? globbed.filter((rel) =>
+            requested!.some((req) => {
+              const prefix = req.split(sep).join('/').replace(/\/$/, '');
+              return rel === prefix || rel.startsWith(`${prefix}/`);
+            }),
+          )
+        : (globbed ?? requested);
     return extractors.scanRepo(root, {
       repoName: source.name,
       maxCandidates: clampCandidates(opts.maxCandidates),
-      ...(include !== undefined ? { include } : {}),
-      ...(exclude !== undefined ? { exclude } : {}),
-      ...(Array.isArray(opts.paths) && opts.paths.length > 0 ? { paths: opts.paths } : {}),
+      // include/exclude are deliberately NOT forwarded: scanRepo would replace
+      // its DEFAULT_EXCLUDE (node_modules, dist, test, vendor…) with them.
+      ...(paths !== undefined ? { paths } : {}),
     });
   };
 
@@ -402,8 +538,8 @@ export function registerExtractRoutes(app: Hono, deps: ExtractRouteDeps): void {
   }> => {
     const files = listDocumentFiles(
       root,
-      patternsToRegExp(source.include, 'documents[].include'),
-      patternsToRegExp(source.exclude, 'documents[].exclude'),
+      compileGlobs(source.include),
+      compileGlobs(source.exclude),
     );
     const docIds = docIdsFor(extractors, files);
     const sections: DocumentSection[] = [];
@@ -466,9 +602,7 @@ export function registerExtractRoutes(app: Hono, deps: ExtractRouteDeps): void {
     extractRoute((c, core, extractors) => {
       const config = core.loadConfig(repoRoot);
       const engine =
-        deps.llm !== undefined
-          ? { ok: true, detail: deps.llm.name }
-          : extractors.claudeCodeAvailable();
+        deps.llm !== undefined ? { ok: true, detail: deps.llm.name } : probeEngine(extractors);
       const body: ExtractSourcesResponse = {
         sources: listSources(repoRoot, config),
         llmReady: engine.ok,
@@ -545,10 +679,7 @@ export function registerExtractRoutes(app: Hono, deps: ExtractRouteDeps): void {
       if ('response' in resolved) return resolved.response;
       const { kind, key, source, root } = resolved;
 
-      const model =
-        typeof payload.model === 'string' && payload.model.trim() !== ''
-          ? payload.model.trim()
-          : undefined;
+      const model = modelFromPayload(payload);
       const llm = resolveLlm(extractors, model);
       if ('error' in llm) {
         return c.json(
@@ -699,6 +830,18 @@ export function registerExtractRoutes(app: Hono, deps: ExtractRouteDeps): void {
       snapshot.rejections = result.rejections;
       snapshot.llmCalls = result.llmCalls;
 
+      // A cancel that arrived during the LAST (or only) chunk never reaches the
+      // wrapper's pre-call check, so honor it here: cancelling must never end
+      // in a commit the user asked not to make. The batch stays retrievable —
+      // that call was paid for.
+      if (snapshot.cancelRequested) {
+        finish(
+          'cancelled',
+          `cancelada tras ${snapshot.llmCalls} llamada(s) al agente — nada se importó; el batch sigue disponible`,
+        );
+        return;
+      }
+
       if (result.batch.nodes.length === 0 && result.batch.edges.length === 0) {
         finish(
           'done',
@@ -753,12 +896,37 @@ export function registerExtractRoutes(app: Hono, deps: ExtractRouteDeps): void {
         return;
       }
       snapshot.error = err instanceof Error ? err.message : String(err);
+      if (record.batch === undefined) {
+        finish('error', 'la extracción falló');
+        return;
+      }
+      // The extraction cost real LLM calls — never lose the batch to an import
+      // failure the user can fix and retry. The in-memory copy is not enough:
+      // it goes with the job TTL, the 20-job cap or a sidecar restart. The CLI
+      // writes untacit-batch-<run_id>.json to the cwd; here it goes under
+      // .untacit/ (gitignored derived state) so it cannot dirty the graph repo.
+      const rescue = rescueBatch(record.batch);
+      snapshot.rescuePath = rescue;
       finish(
         'error',
-        record.batch !== undefined
-          ? 'el import falló; el batch sigue disponible para reintentarlo (GET /api/extract/:id/batch)'
-          : 'la extracción falló',
+        rescue !== undefined
+          ? `el import falló; el batch está guardado en ${rescue} — arregla el problema e impórtalo`
+          : 'el import falló; el batch sigue disponible para reintentarlo (GET /api/extract/:id/batch)',
       );
+    }
+  }
+
+  /** Write a failed run's batch next to the index, returning its path. */
+  function rescueBatch(batch: ExtractionBatch): string | undefined {
+    try {
+      const dir = join(repoRoot, '.untacit', 'rescue');
+      mkdirSync(dir, { recursive: true });
+      const path = join(dir, `untacit-batch-${batch.run_id}.json`);
+      writeFileSync(path, `${JSON.stringify(batch, null, 2)}\n`, 'utf8');
+      return path;
+    } catch {
+      // /api/extract/:id/batch is still the fallback; never mask the real error.
+      return undefined;
     }
   }
 

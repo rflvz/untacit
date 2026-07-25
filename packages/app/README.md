@@ -140,6 +140,20 @@ the next read, so `.untacit/index.db` never has two writers. `paths` scopes a
 code run to specific files/dirs (partial re-extraction, docs/03 §5); the UI
 does not expose it yet.
 
+Cancellation is honored both before the next agent call and after the last one,
+so it can never end in a commit. An import failure is different: the batch is
+written to `.untacit/rescue/untacit-batch-<run_id>.json` (gitignored, so it
+cannot dirty the graph repo) as well as being served from
+`/api/extract/:id/batch`, because the in-memory copy dies with the job's TTL or
+a sidecar restart — the CLI writes the same rescue file for the same reason.
+
+All graph writes — imports, merges, conflict resolutions, settings saves,
+git pull/push, interview finishes — go through one queue (`sidecar/write-queue.ts`).
+A job's import lands long after the request that started it, and two overlapping
+writes would race on the git index and on files a `GraphStore.load` had already
+snapshotted. Only the write step queues, so a running extraction never blocks
+the review tray.
+
 Interview endpoints (live session in memory, resumable snapshot on disk; LLM
 required except for `gaps` and `saved`):
 `GET /api/interview/gaps | /api/interview/saved | /api/interview/:id`,
@@ -147,9 +161,13 @@ required except for `gaps` and `saved`):
 :id/answer | :id/proposal/:pid (accept · reject · edit · confirm · refute ·
 skip) | :id/accept-all | :id/finish`,
 `DELETE /api/interview/saved` (discard the interrupted session). `gaps` carries
-the saved-session summary so the start screen needs one request; an unreadable
-or future-version snapshot answers `409` on `saved`/`resume` (and `null` on
-`gaps`) so "descartar" stays reachable.
+the saved-session summary so the start screen needs one request; an unreadable,
+malformed or future-version snapshot answers `409` on `saved`/`resume` (and
+`null` on `gaps`) so "descartar" stays reachable. `start` itself answers `409`
+while any snapshot is on disk unless the caller passes `discardSaved: true` —
+overwriting it costs a real conversation, and the CLI refuses the same thing
+without a typed confirmation. The UI's own gate is a convenience on top of that
+rule, not a substitute: it disappears when the gaps request fails.
 
 For `/api/open` to resolve code locators, and for extraction to know what to
 read, declare the sources in the graph repo's `untacit.config.json`:
@@ -163,11 +181,20 @@ read, declare the sources in the graph repo's `untacit.config.json`:
 }
 ```
 
-`include`/`exclude` on a source are **regular-expression fragments** (joined
-with `|`), matched against the absolute file path — that is what the
-extractors' scanner takes. Document sources are walked for `.md`, `.markdown`,
-`.txt`, `.pdf` and `.docx` (max 200 files per source); a file that cannot be
-parsed is reported and skipped, never fatal.
+`include`/`exclude` on a source are **globs over the source-relative path**
+(`src/**/*.ts`, `**/*.md` — `**` crosses directory separators, `*` and `?` do
+not), matched by the sidecar rather than handed to the extractors' scanner:
+that takes RegExps and would *replace* its own `node_modules`/`dist`/`test`
+exclusions with whatever it is given. Filtering first and passing the surviving
+files as the scanner's `paths` keeps those guards in force. Document sources
+are walked for `.md`, `.markdown`, `.txt`, `.pdf` and `.docx` (max 200 files
+per source); a file that cannot be parsed is reported and skipped, never fatal.
+
+Request-level hardening, because the sidecar is an unauthenticated CORS-open
+loopback port: `paths` entries are checked for containment in the source root
+(the same guard `POST /api/open` applies to locators), and `model` is
+allowlisted to `[A-Za-z0-9._:@/-]` — it ends up in the `claude --model` argv,
+which on Windows is spawned through a shell that does not escape it.
 
 ## Tauri shell
 

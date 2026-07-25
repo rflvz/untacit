@@ -44,6 +44,7 @@ import type {
   InterviewStartResponse,
   InterviewStateResponse,
 } from '../src/api-types.js';
+import { createEngineProbe, modelFromPayload } from './agent-engine.js';
 import type { CoreModule } from './core-loader.js';
 import { extractorsLoadError, loadExtractors, type ExtractorsModule } from './extractors-loader.js';
 
@@ -103,6 +104,7 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
   const sessions = new Map<string, InterviewSession>();
   /** One client per model id — building it probes nothing, but reuse is cheap. */
   const llmCache = new Map<string, LlmClient>();
+  const probeEngine = createEngineProbe();
 
   const sweepSessions = (now: number): void => {
     for (const [id, session] of sessions) {
@@ -135,8 +137,9 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
     const cached = llmCache.get(key);
     if (cached !== undefined) return { llm: cached };
     // Engine = Claude Code: the sidecar drives the local `claude` CLI with
-    // whatever authentication it already has. No API key involved.
-    const engine = extractors.claudeCodeAvailable();
+    // whatever authentication it already has. No API key involved. The probe
+    // is cached because it blocks the event loop (execFileSync).
+    const engine = probeEngine(extractors);
     if (!engine.ok) {
       return { error: engine.detail };
     }
@@ -145,10 +148,9 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
     return { llm };
   };
 
-  const modelFrom = (payload: { model?: unknown }): string | undefined =>
-    typeof payload.model === 'string' && payload.model.trim() !== ''
-      ? payload.model.trim()
-      : undefined;
+  // Validated, not just trimmed: the value lands in the `claude --model` argv,
+  // which on Windows goes through a shell (see sidecar/agent-engine.ts).
+  const modelFrom = modelFromPayload;
 
   // ---------------------------------------------------------------------------
   // Resumable session on disk — the CLI's `--resume` file, same format.
@@ -205,21 +207,45 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
     rmSync(path, { force: true });
   };
 
-  /** The persisted snapshot, or a reason it cannot be used. */
+  /**
+   * The persisted snapshot, or a reason it cannot be used.
+   *
+   * The shape is validated, not just the version: a v1 file with a missing or
+   * reshaped `state` would otherwise make every reader (savedSummary,
+   * resumeInterview) throw a TypeError, i.e. answer 500 on a situation the
+   * caller can fix by discarding it.
+   */
   const readSaved = (
     core: CoreModule,
   ): { snapshot: PersistedInterview } | { error: string } | undefined => {
     const path = sessionFile(core);
     if (!existsSync(path)) return undefined;
-    let parsed: { version?: unknown };
+    let parsed: { version?: unknown; savedAt?: unknown; state?: unknown };
     try {
-      parsed = JSON.parse(readFileSync(path, 'utf8')) as { version?: unknown };
+      parsed = JSON.parse(readFileSync(path, 'utf8')) as typeof parsed;
     } catch (err) {
       return { error: `sesión guardada ilegible (${err instanceof Error ? err.message : String(err)})` };
+    }
+    if (parsed === null || typeof parsed !== 'object') {
+      return { error: 'sesión guardada ilegible (no es un objeto JSON)' };
     }
     if (parsed.version !== 1) {
       return {
         error: `versión de sesión desconocida (${String(parsed.version)}) — descártala o actualiza untacit`,
+      };
+    }
+    const state = parsed.state as Partial<InterviewState> | undefined;
+    if (
+      state === null ||
+      typeof state !== 'object' ||
+      typeof state.interviewId !== 'string' ||
+      typeof state.speakerRole !== 'string' ||
+      !Array.isArray(state.script) ||
+      !Array.isArray(state.proposals)
+    ) {
+      return {
+        error:
+          'sesión guardada con un "state" inesperado (falta interviewId, speakerRole, script o proposals) — descártala',
       };
     }
     return { snapshot: parsed as unknown as PersistedInterview };
@@ -334,9 +360,16 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
       const path = sessionFile(core);
       const existed = existsSync(path);
       if (existed) {
-        const saved = readSaved(core);
-        if (saved !== undefined && 'snapshot' in saved) {
-          sessions.delete(saved.snapshot.state.interviewId);
+        // Evict the live twin when there is one, but never let a snapshot we
+        // cannot read block its own deletion — discarding it is exactly the
+        // remedy for a corrupt file.
+        try {
+          const saved = readSaved(core);
+          if (saved !== undefined && 'snapshot' in saved) {
+            sessions.delete(saved.snapshot.state.interviewId);
+          }
+        } catch {
+          /* unreadable snapshot: nothing to evict */
         }
         rmSync(path, { force: true });
       }
@@ -346,9 +379,14 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
   );
 
   // ---------------------------------------------------------------------------
-  // POST /api/interview/start { role, model? } — gap analysis, script
-  // generation (LLM), verification queue, opening agent turn. Any saved session
-  // is replaced: the UI offers resume/discard before getting here.
+  // POST /api/interview/start { role, model?, discardSaved? } — gap analysis,
+  // script generation (LLM), verification queue, opening agent turn.
+  //
+  // An interrupted session on disk blocks the start with a 409 unless the
+  // caller says `discardSaved: true`: starting over silently overwrites work
+  // that cost a real conversation, and the CLI refuses the same thing without
+  // a typed confirmation. The UI's own gate is a convenience on top — it
+  // disappears if the gaps request fails, so the rule lives here too.
   // ---------------------------------------------------------------------------
   app.post(
     '/api/interview/start',
@@ -357,6 +395,16 @@ export function registerInterviewRoutes(app: Hono, deps: InterviewRouteDeps): vo
       const role = payload.role?.trim() ?? '';
       if (role === '') {
         return c.json({ error: 'role is required (rol del entrevistado, nunca su nombre)' } satisfies ApiError, 400);
+      }
+      if (payload.discardSaved !== true && existsSync(sessionFile(core))) {
+        return c.json(
+          {
+            error: 'hay una entrevista sin terminar en este grafo',
+            detail:
+              'reanúdala (POST /api/interview/resume), descártala (DELETE /api/interview/saved), o empieza de cero con discardSaved: true',
+          } satisfies ApiError,
+          409,
+        );
       }
       const model = modelFrom(payload);
       const llm = resolveLlm(extractors, model);
