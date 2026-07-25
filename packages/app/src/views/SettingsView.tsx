@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { api } from '../api.js';
 import type {
+  CodeSourceConfig,
+  DocumentSourceConfig,
   EmbeddingsConfig,
   RetrievalConfig,
   RetrievalTestResponse,
@@ -612,7 +614,142 @@ export function SettingsView() {
             </div>
           )}
         </GlassCard>
+
+        <SourcesCard
+          initial={settings.config.sources}
+          onSaved={() => api.settings().then(setSettings).catch(() => {})}
+        />
       </div>
     </div>
+  );
+}
+
+/**
+ * Editor of untacit.config.json `sources`: the repos/folders that evidence
+ * locators resolve against (POST /api/open). Self-contained save — it
+ * replaces only the `sources` section, independent of the retrieval draft.
+ */
+function SourcesCard({
+  initial,
+  onSaved,
+}: {
+  initial: { code: CodeSourceConfig[]; documents: DocumentSourceConfig[] };
+  onSaved: () => void;
+}) {
+  const [code, setCode] = useState<CodeSourceConfig[]>(initial.code);
+  const [documents, setDocuments] = useState<DocumentSourceConfig[]>(initial.documents);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [savedCommit, setSavedCommit] = useState<string | null>(null);
+
+  const dirty = useMemo(
+    () =>
+      JSON.stringify({ code, documents }) !==
+      JSON.stringify({ code: initial.code, documents: initial.documents }),
+    [code, documents, initial],
+  );
+  const invalid =
+    code.some((s) => s.name.trim() === '' || s.path.trim() === '') ||
+    documents.some((s) => s.path.trim() === '');
+
+  const save = () => {
+    setSaving(true);
+    setError(null);
+    api
+      .saveSettings({ sources: { code, documents } })
+      .then((res) => {
+        setSavedCommit(res.commit);
+        onSaved();
+      })
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setSaving(false));
+  };
+
+  return (
+    <GlassCard style={{ marginTop: 18 }} pad="26px 28px">
+      <h3 className="settings-title">Fuentes (locators clicables)</h3>
+      <p className="settings-lead">
+        Dónde viven las fuentes en esta máquina: con ellas la evidencia de código y documentos se
+        abre en tu editor con un clic. Rutas relativas al repo del grafo o absolutas.
+      </p>
+      <h4 className="dim" style={{ margin: '10px 0 6px', fontSize: 12.5 }}>
+        Repos de código
+      </h4>
+      {code.length === 0 && <div className="empty">Ninguno.</div>}
+      {code.map((source, i) => (
+        <div key={i} className="source-row">
+          <input
+            type="text"
+            className="source-name"
+            placeholder="nombre (locator.repo)"
+            value={source.name}
+            onChange={(e) =>
+              setCode(code.map((s, j) => (j === i ? { ...s, name: e.target.value } : s)))
+            }
+          />
+          <input
+            type="text"
+            placeholder="../web-pedidos"
+            value={source.path}
+            onChange={(e) =>
+              setCode(code.map((s, j) => (j === i ? { ...s, path: e.target.value } : s)))
+            }
+          />
+          <Button size="sm" variant="glass" onClick={() => setCode(code.filter((_, j) => j !== i))}>
+            Quitar
+          </Button>
+        </div>
+      ))}
+      <Button size="sm" variant="glass" onClick={() => setCode([...code, { name: '', path: '' }])}>
+        Añadir repo de código
+      </Button>
+
+      <h4 className="dim" style={{ margin: '16px 0 6px', fontSize: 12.5 }}>
+        Carpetas de documentos
+      </h4>
+      {documents.length === 0 && <div className="empty">Ninguna.</div>}
+      {documents.map((source, i) => (
+        <div key={i} className="source-row">
+          <input
+            type="text"
+            placeholder="../docs-internos"
+            value={source.path}
+            onChange={(e) =>
+              setDocuments(documents.map((s, j) => (j === i ? { ...s, path: e.target.value } : s)))
+            }
+          />
+          <Button
+            size="sm"
+            variant="glass"
+            onClick={() => setDocuments(documents.filter((_, j) => j !== i))}
+          >
+            Quitar
+          </Button>
+        </div>
+      ))}
+      <Button size="sm" variant="glass" onClick={() => setDocuments([...documents, { path: '' }])}>
+        Añadir carpeta de documentos
+      </Button>
+
+      <div className="settings-savebar" style={{ marginTop: 16 }}>
+        {dirty ? (
+          <span className="dim">Hay cambios sin guardar.</span>
+        ) : (
+          <span className="dim">
+            {savedCommit !== null ? `Guardado (commit ${savedCommit.slice(0, 8)}).` : 'Sin cambios.'}
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        <Button size="sm" disabled={!dirty || invalid || saving} onClick={save}>
+          {saving ? 'Guardando…' : 'Guardar fuentes'}
+        </Button>
+      </div>
+      {invalid && dirty && (
+        <p className="dim" style={{ fontSize: 12 }}>
+          Completa nombre y ruta de cada fuente antes de guardar.
+        </p>
+      )}
+      {error !== null && <div className="error-banner" style={{ marginTop: 8 }}>{error}</div>}
+    </GlassCard>
   );
 }

@@ -10,6 +10,8 @@
 import type {
   BatchEdge,
   BatchNode,
+  CodeSourceConfig,
+  DocumentSourceConfig,
   EmbeddingsConfig,
   RetrievalChannel,
   RetrievalConfig,
@@ -43,6 +45,8 @@ import type {
 export type {
   BatchEdge,
   BatchNode,
+  CodeSourceConfig,
+  DocumentSourceConfig,
   EmbeddingsConfig,
   RetrievalChannel,
   RetrievalConfig,
@@ -102,9 +106,23 @@ export interface HealthResponse {
   repo: string;
   repoExists: boolean;
   isGitRepo: boolean;
+  /** True when the directory has an untacit.config.json (initialized graph repo). */
+  isGraphRepo: boolean;
   /** 'loaded' when @untacit/core resolved; 'unavailable' -> API routes answer 503. */
   core: 'loaded' | 'unavailable';
   coreError?: string;
+}
+
+/** Body of POST /api/init (all fields optional). */
+export interface InitRequest {
+  /** Content language for the new graph (default "es"). */
+  language?: string;
+}
+
+export interface InitResponse {
+  ok: boolean;
+  /** Absolute path of the initialized graph repo. */
+  repo: string;
 }
 
 export type StatsResponse = GraphStats;
@@ -156,6 +174,68 @@ export interface ReviewResponse {
 
 export interface RunsResponse {
   runs: RunMeta[];
+}
+
+/** Body of POST /api/import: an extraction batch plus import options. */
+export interface ImportRequest {
+  /** The batch JSON, verbatim (validated by the core pipeline). */
+  batch: unknown;
+  /** Commit the run on a new branch (extraction-as-PR). */
+  branch?: string;
+}
+
+/** JSON-safe mirror of the core pipeline's ImportResult. */
+export interface ImportResponse {
+  ok: boolean;
+  runId: string;
+  stats: RunStats;
+  rejections: ValidationIssue[];
+  proposals: MergeProposal[];
+  /** Commit hash of the run, null when nothing changed / repo not git. */
+  commit: string | null;
+  /** Branch the run was committed on, null for the current branch. */
+  branch: string | null;
+  /** True when the import changed nothing (identical re-import). */
+  noop: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Git surface (Runs view + Drift ref picker)
+// ---------------------------------------------------------------------------
+
+export interface GitLogEntry {
+  hash: string;
+  subject: string;
+  /** Strict-ISO committer date. */
+  date: string;
+}
+
+export interface GitLogResponse {
+  commits: GitLogEntry[];
+}
+
+/** JSON-safe mirror of core's GitRemoteStatus. */
+export interface GitStatusResponse {
+  /** Current branch, null on detached HEAD / unborn repo. */
+  branch: string | null;
+  /** Upstream ref ("origin/main"), null when the branch tracks nothing. */
+  upstream: string | null;
+  /** Local commits to push. */
+  ahead: number;
+  /** Upstream commits to pull. */
+  behind: number;
+  /** True when the working tree has uncommitted changes. */
+  dirty: boolean;
+  /** Set when ?fetch=1 was requested and the fetch failed (offline, no remote). */
+  fetchError?: string;
+}
+
+/** POST /api/git/pull | push. */
+export interface GitSyncResponse {
+  ok: boolean;
+  /** HEAD after the operation. */
+  head: string;
+  status: GitStatusResponse;
 }
 
 export interface DiffResponse {
@@ -385,6 +465,11 @@ export interface SettingsResponse {
 export interface SettingsUpdateRequest {
   embeddings?: EmbeddingsConfig;
   retrieval?: RetrievalConfig;
+  /** Source repos/folders used to resolve evidence locators (POST /api/open). */
+  sources?: {
+    code: CodeSourceConfig[];
+    documents: DocumentSourceConfig[];
+  };
 }
 
 export interface SettingsUpdateResponse {

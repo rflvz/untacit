@@ -12,8 +12,14 @@ import type {
   ConflictResolveResponse,
   DiffResponse,
   Evidence,
+  GitLogResponse,
+  GitStatusResponse,
+  GitSyncResponse,
   GraphResponse,
   HealthResponse,
+  ImportRequest,
+  ImportResponse,
+  InitResponse,
   InterviewAcceptAllResponse,
   InterviewAnswerResponse,
   InterviewFinishResponse,
@@ -92,11 +98,29 @@ export const api = {
     ),
   node: (id: string): Promise<NodeDetailResponse> =>
     request(`/api/node/${encodeURIComponent(id)}`),
-  search: (q: string, types?: NodeType[], limit?: number): Promise<SearchResponse> =>
-    request(`/api/search${qs({ q, types: types?.join(','), limit })}`),
+  search: (
+    q: string,
+    types?: NodeType[],
+    limit?: number,
+    mode?: 'fts' | 'semantic' | 'hybrid',
+  ): Promise<SearchResponse> =>
+    request(`/api/search${qs({ q, types: types?.join(','), limit, mode })}`),
   conflicts: (): Promise<{ conflicts: ReviewResponse['conflicts'] }> => request('/api/conflicts'),
   review: (): Promise<ReviewResponse> => request('/api/review'),
   runs: (): Promise<RunsResponse> => request('/api/runs'),
+  /** Initialize the configured folder as a graph repo (desktop welcome flow). */
+  init: (language?: string): Promise<InitResponse> =>
+    post('/api/init', language !== undefined ? { language } : {}),
+  /** Import an extraction batch (the CLI's `untacit import`, over HTTP). */
+  importBatch: (batch: unknown, branch?: string): Promise<ImportResponse> =>
+    post('/api/import', { batch, ...(branch !== undefined ? { branch } : {}) } satisfies ImportRequest),
+
+  // ---- Git surface (Runs view + Drift ref picker) ----
+  gitLog: (limit?: number): Promise<GitLogResponse> => request(`/api/git/log${qs({ limit })}`),
+  gitStatus: (fetch = false): Promise<GitStatusResponse> =>
+    request(`/api/git/status${qs({ fetch: fetch ? 1 : undefined })}`),
+  gitPull: (): Promise<GitSyncResponse> => post('/api/git/pull'),
+  gitPush: (): Promise<GitSyncResponse> => post('/api/git/push'),
   diff: (a: string, b: string): Promise<DiffResponse> => request(`/api/diff${qs({ a, b })}`),
   acceptMerge: (proposalId: string, by?: string): Promise<MergeActionResponse> =>
     post(`/api/review/merge/${encodeURIComponent(proposalId)}/accept`, by !== undefined ? { by } : {}),

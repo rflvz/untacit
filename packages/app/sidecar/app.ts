@@ -9,6 +9,7 @@
  */
 
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { cors } from 'hono/cors';
@@ -20,8 +21,15 @@ import type {
   ConflictResolveResponse,
   DiffResponse,
   ElementStatus,
+  GitLogResponse,
+  GitStatusResponse,
+  GitSyncResponse,
   GraphResponse,
   HealthResponse,
+  ImportRequest,
+  ImportResponse,
+  InitRequest,
+  InitResponse,
   MergeActionResponse,
   NodeDetailResponse,
   NodeType,
@@ -155,12 +163,35 @@ export function createApp(opts: SidecarOptions): Hono {
       repo: repoRoot,
       repoExists,
       isGitRepo: core !== undefined && repoExists ? core.isGitRepo(repoRoot) : false,
+      // Config-file presence, not core-dependent: the frontend uses it to
+      // offer "initialize a graph repo here" for a plain folder.
+      isGraphRepo: existsSync(join(repoRoot, 'untacit.config.json')),
       core: core !== undefined ? 'loaded' : 'unavailable',
     };
     const coreError = coreLoadError();
     if (coreError !== undefined) body.coreError = coreError;
     return c.json(body);
   });
+
+  // -------------------------------------------------------------------------
+  // POST /api/init — create the graph-repo skeleton in the configured folder
+  // (the desktop "initialize here" flow: pick an empty folder, init, go).
+  // -------------------------------------------------------------------------
+  app.post(
+    '/api/init',
+    route(async (c, core) => {
+      if (existsSync(join(repoRoot, 'untacit.config.json'))) {
+        return c.json({ error: 'already a graph repo' } satisfies ApiError, 409);
+      }
+      const payload = (await c.req.json().catch(() => ({}))) as InitRequest;
+      const language = typeof payload.language === 'string' && payload.language.trim() !== ''
+        ? payload.language.trim()
+        : undefined;
+      core.initGraphRepo(repoRoot, language !== undefined ? { language } : {});
+      const body: InitResponse = { ok: true, repo: repoRoot };
+      return c.json(body);
+    }),
+  );
 
   // -------------------------------------------------------------------------
   // GET /api/stats — GraphStats from the derived index.
@@ -278,14 +309,22 @@ export function createApp(opts: SidecarOptions): Hono {
   );
 
   // -------------------------------------------------------------------------
-  // GET /api/search?q&types&limit — FTS5, bm25 ranked.
+  // GET /api/search?q&types&limit&mode — mode: fts (default, FTS5 bm25) |
+  // semantic (embedding k-NN) | hybrid (RRF fusion), like the CLI's --mode.
   // -------------------------------------------------------------------------
   app.get(
     '/api/search',
-    route((c, core) => {
+    route(async (c, core) => {
       const q = c.req.query('q');
       if (q === undefined || q.trim() === '') {
         return c.json({ results: [] } satisfies SearchResponse);
+      }
+      const mode = c.req.query('mode') ?? 'fts';
+      if (!['fts', 'semantic', 'hybrid'].includes(mode)) {
+        return c.json(
+          { error: `unknown mode "${mode}" — expected fts | semantic | hybrid` } satisfies ApiError,
+          400,
+        );
       }
       const typesParam = parseListParam(c.req.query('types'));
       const types =
@@ -294,7 +333,25 @@ export function createApp(opts: SidecarOptions): Hono {
           : undefined;
       const limitRaw = c.req.query('limit');
       const limit = Math.min(Math.max(Number(limitRaw ?? 20) || 20, 1), 100);
-      const results = getIndex(core).search(q, { types, limit });
+      const index = getIndex(core);
+      if (mode === 'fts') {
+        return c.json({ results: index.search(q, { types, limit }) } satisfies SearchResponse);
+      }
+      const provider = await getProvider(core);
+      if (provider === null && mode === 'semantic') {
+        return c.json(
+          {
+            error:
+              'semantic search needs an embedding provider — configure "embeddings" in Ajustes',
+          } satisfies ApiError,
+          400,
+        );
+      }
+      if (provider !== null) await index.updateEmbeddings(provider);
+      const results =
+        mode === 'semantic'
+          ? await index.semanticSearch(q, provider!, { types, limit })
+          : await index.hybridSearch(q, provider, { types, limit });
       return c.json({ results } satisfies SearchResponse);
     }),
   );
@@ -333,6 +390,122 @@ export function createApp(opts: SidecarOptions): Hono {
     route((c, core) => {
       const body: RunsResponse = { runs: core.listRuns(repoRoot).reverse() };
       return c.json(body);
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /api/import — validate, resolve and materialize an extraction batch
+  // (the CLI's `untacit import`, over HTTP). Reindexing is left to the
+  // sidecar's own index (reindexIfStale on next read) so two SQLite writers
+  // never race on .untacit/index.db.
+  // -------------------------------------------------------------------------
+  app.post(
+    '/api/import',
+    route(async (c, core) => {
+      const payload = (await c.req.json().catch(() => undefined)) as ImportRequest | undefined;
+      if (payload === undefined || payload.batch === undefined || payload.batch === null) {
+        return c.json({ error: 'body must be { batch, branch? }' } satisfies ApiError, 400);
+      }
+      const branch =
+        typeof payload.branch === 'string' && payload.branch.trim() !== ''
+          ? payload.branch.trim()
+          : undefined;
+      let result;
+      try {
+        result = await core.importBatch(repoRoot, payload.batch, {
+          reindex: false,
+          ...(branch !== undefined ? { branch } : {}),
+        });
+      } catch (err) {
+        // Validator rejections and bad branch options are client problems.
+        const message = err instanceof Error ? err.message : String(err);
+        if (/rejected by validator|branch/i.test(message)) {
+          return c.json({ error: message } satisfies ApiError, 400);
+        }
+        throw err;
+      }
+      const body: ImportResponse = {
+        ok: true,
+        runId: result.runId,
+        stats: result.stats,
+        rejections: result.rejections,
+        proposals: result.proposals,
+        commit: result.commit,
+        branch: result.branch,
+        noop: result.noop,
+      };
+      return c.json(body);
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // Git surface: log (Drift ref picker), remote status and pull/push (the
+  // "team graph" flow — review/interview commits are local until pushed).
+  // -------------------------------------------------------------------------
+  app.get(
+    '/api/git/log',
+    route((c, core) => {
+      const limitRaw = c.req.query('limit');
+      const limit = Math.min(Math.max(Number(limitRaw ?? 30) || 30, 1), 200);
+      const commits = core.isGitRepo(repoRoot) ? core.gitLastCommits(repoRoot, limit) : [];
+      return c.json({ commits } satisfies GitLogResponse);
+    }),
+  );
+
+  const remoteStatus = (core: CoreModule): GitStatusResponse => core.gitRemoteStatus(repoRoot);
+
+  app.get(
+    '/api/git/status',
+    route((c, core) => {
+      if (!core.isGitRepo(repoRoot)) {
+        return c.json({ error: 'not a git repository' } satisfies ApiError, 400);
+      }
+      const body: GitStatusResponse = { ...remoteStatus(core) };
+      if (c.req.query('fetch') === '1' && body.upstream !== null) {
+        try {
+          core.gitFetch(repoRoot);
+          Object.assign(body, remoteStatus(core));
+        } catch (err) {
+          body.fetchError = firstLine(err instanceof Error ? err.message : String(err));
+        }
+      }
+      return c.json(body);
+    }),
+  );
+
+  app.post(
+    '/api/git/pull',
+    route((c, core) => {
+      if (!core.isGitRepo(repoRoot)) {
+        return c.json({ error: 'not a git repository' } satisfies ApiError, 400);
+      }
+      try {
+        core.gitFetch(repoRoot);
+        const head = core.gitPull(repoRoot);
+        const body: GitSyncResponse = { ok: true, head, status: remoteStatus(core) };
+        return c.json(body);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return c.json({ error: 'pull failed', detail: message } satisfies ApiError, 409);
+      }
+    }),
+  );
+
+  app.post(
+    '/api/git/push',
+    route((c, core) => {
+      if (!core.isGitRepo(repoRoot)) {
+        return c.json({ error: 'not a git repository' } satisfies ApiError, 400);
+      }
+      try {
+        core.gitPush(repoRoot);
+        const head = core.gitRevParse(repoRoot, 'HEAD');
+        const body: GitSyncResponse = { ok: true, head, status: remoteStatus(core) };
+        return c.json(body);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return c.json({ error: 'push failed', detail: message } satisfies ApiError, 409);
+      }
     }),
   );
 
@@ -514,11 +687,34 @@ export function createApp(opts: SidecarOptions): Hono {
       const payload = (await c.req.json().catch(() => undefined)) as
         | SettingsUpdateRequest
         | undefined;
-      if (payload === undefined || (payload.embeddings === undefined && payload.retrieval === undefined)) {
+      if (
+        payload === undefined ||
+        (payload.embeddings === undefined &&
+          payload.retrieval === undefined &&
+          payload.sources === undefined)
+      ) {
         return c.json(
-          { error: 'body must set "embeddings" and/or "retrieval"' } satisfies ApiError,
+          { error: 'body must set "embeddings", "retrieval" and/or "sources"' } satisfies ApiError,
           400,
         );
+      }
+      if (payload.sources !== undefined) {
+        const { code, documents } = payload.sources;
+        const badCode =
+          !Array.isArray(code) ||
+          code.some((s) => typeof s?.name !== 'string' || s.name.trim() === '' || typeof s?.path !== 'string' || s.path.trim() === '');
+        const badDocs =
+          !Array.isArray(documents) ||
+          documents.some((s) => typeof s?.path !== 'string' || s.path.trim() === '');
+        if (badCode || badDocs) {
+          return c.json(
+            {
+              error:
+                'sources must be { code: [{name, path}...], documents: [{path}...] } with non-empty strings',
+            } satisfies ApiError,
+            400,
+          );
+        }
       }
       const config = core.loadConfig(repoRoot);
       if (payload.embeddings !== undefined) {
@@ -526,6 +722,7 @@ export function createApp(opts: SidecarOptions): Hono {
         providerPromise = undefined; // reload the provider with the new choice
       }
       if (payload.retrieval !== undefined) config.retrieval = payload.retrieval;
+      if (payload.sources !== undefined) config.sources = payload.sources;
       core.saveConfig(repoRoot, config);
       let commit: string | null = null;
       try {

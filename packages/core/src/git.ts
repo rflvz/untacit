@@ -134,6 +134,65 @@ export function gitShowFile(dir: string, ref: string, path: string): string | nu
   }
 }
 
+/** Sync state of the graph repo against its configured upstream. */
+export interface GitRemoteStatus {
+  /** Current branch, null on detached HEAD / unborn repo. */
+  branch: string | null;
+  /** Upstream ref ("origin/main"), null when the branch tracks nothing. */
+  upstream: string | null;
+  /** Local commits the upstream does not have (to push). */
+  ahead: number;
+  /** Upstream commits the local branch does not have (to pull). */
+  behind: number;
+  /** True when the working tree has uncommitted changes. */
+  dirty: boolean;
+}
+
+/**
+ * Where the repo stands relative to its upstream. Does NOT talk to the
+ * network — call gitFetch first for fresh ahead/behind counts.
+ */
+export function gitRemoteStatus(dir: string): GitRemoteStatus {
+  const branch = gitCurrentBranch(dir);
+  let upstream: string | null = null;
+  try {
+    const out = git(dir, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']).trim();
+    upstream = out === '' ? null : out;
+  } catch {
+    upstream = null;
+  }
+  let ahead = 0;
+  let behind = 0;
+  if (upstream !== null) {
+    // "<behind>\t<ahead>": left = upstream-only commits, right = HEAD-only.
+    const counts = git(dir, ['rev-list', '--left-right', '--count', '@{upstream}...HEAD']).trim();
+    const [left = '0', right = '0'] = counts.split(/\s+/);
+    behind = Number(left) || 0;
+    ahead = Number(right) || 0;
+  }
+  return { branch, upstream, ahead, behind, dirty: !gitStatusClean(dir) };
+}
+
+/** Fetch from the default remote (network). Throws with stderr on failure. */
+export function gitFetch(dir: string): void {
+  git(dir, ['fetch', '--quiet']);
+}
+
+/**
+ * Fast-forward the current branch to its upstream (`git pull --ff-only`).
+ * Never creates merge commits — diverged histories throw instead, so the
+ * graph repo's linear run history stays intact. Returns the new HEAD hash.
+ */
+export function gitPull(dir: string): string {
+  git(dir, ['pull', '--ff-only', '--quiet']);
+  return git(dir, ['rev-parse', 'HEAD']).trim();
+}
+
+/** Push the current branch to its upstream. Throws with stderr on failure. */
+export function gitPush(dir: string): void {
+  git(dir, ['push', '--quiet']);
+}
+
 /**
  * The last `n` commits, newest first: hash, subject and strict-ISO committer
  * date. Returns [] for a repository without commits.

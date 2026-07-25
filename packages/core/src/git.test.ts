@@ -2,11 +2,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import {
   gitCommitAll,
   gitInit,
   gitLastCommits,
   gitListFilesAtRef,
+  gitPull,
+  gitPush,
+  gitRemoteStatus,
   gitRevParse,
   gitShowFile,
   gitStatusClean,
@@ -129,6 +133,87 @@ describe('gitListFilesAtRef / gitShowFile', () => {
     expect(gitShowFile(dir, first, 'a.txt')).toBe('version 1\n');
     expect(gitShowFile(dir, 'HEAD', 'missing.txt')).toBeNull();
     expect(gitShowFile(dir, first, 'graph/rule/rule-x.md')).toBeNull();
+  });
+});
+
+describe('gitRemoteStatus / gitPull / gitPush', () => {
+  function run(dir: string, args: string[]): string {
+    return execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  }
+
+  /** A local "origin" (bare) plus two clones, so pull/push work offline. */
+  function remotePair(): { bare: string; clone: string } {
+    const base = tmpDir();
+    const seed = path.join(base, 'seed');
+    gitInit(seed);
+    write(seed, 'a.txt', '1\n');
+    gitCommitAll(seed, 'first');
+    const bare = path.join(base, 'origin.git');
+    run(base, ['clone', '--bare', '--quiet', seed, bare]);
+    const clone = path.join(base, 'clone');
+    run(base, ['clone', '--quiet', bare, clone]);
+    return { bare, clone };
+  }
+
+  it('reports no upstream for a plain local repo', () => {
+    const dir = tmpDir();
+    gitInit(dir);
+    write(dir, 'a.txt', 'x\n');
+    gitCommitAll(dir, 'first');
+    const status = gitRemoteStatus(dir);
+    expect(status.upstream).toBeNull();
+    expect(status.ahead).toBe(0);
+    expect(status.behind).toBe(0);
+    expect(status.dirty).toBe(false);
+  });
+
+  it('counts ahead/behind against the upstream and flags a dirty tree', () => {
+    const { bare, clone } = remotePair();
+    const status0 = gitRemoteStatus(clone);
+    expect(status0.upstream).not.toBeNull();
+    expect([status0.ahead, status0.behind]).toEqual([0, 0]);
+
+    // One local commit -> ahead 1; an uncommitted file -> dirty.
+    write(clone, 'b.txt', 'local\n');
+    gitCommitAll(clone, 'local work');
+    write(clone, 'wip.txt', 'wip\n');
+    const status1 = gitRemoteStatus(clone);
+    expect(status1.ahead).toBe(1);
+    expect(status1.behind).toBe(0);
+    expect(status1.dirty).toBe(true);
+
+    // Push, then advance the remote from a second clone -> behind after fetch.
+    fs.rmSync(path.join(clone, 'wip.txt'));
+    gitPush(clone);
+    expect(gitRemoteStatus(clone).ahead).toBe(0);
+
+    const other = path.join(path.dirname(bare), 'other');
+    run(path.dirname(bare), ['clone', '--quiet', bare, other]);
+    write(other, 'c.txt', 'remote\n');
+    gitCommitAll(other, 'remote work');
+    gitPush(other);
+    run(clone, ['fetch', '--quiet']);
+    const status2 = gitRemoteStatus(clone);
+    expect(status2.behind).toBe(1);
+
+    // Pull fast-forwards to the remote head.
+    const head = gitPull(clone);
+    expect(head).toBe(gitRevParse(clone, '@{upstream}'));
+    expect(gitRemoteStatus(clone).behind).toBe(0);
+  });
+
+  it('gitPull refuses diverged histories (ff-only)', () => {
+    const { bare, clone } = remotePair();
+    const other = path.join(path.dirname(bare), 'other');
+    run(path.dirname(bare), ['clone', '--quiet', bare, other]);
+    write(other, 'x.txt', 'remote\n');
+    gitCommitAll(other, 'remote work');
+    gitPush(other);
+
+    write(clone, 'y.txt', 'local\n');
+    gitCommitAll(clone, 'local work');
+    run(clone, ['fetch', '--quiet']);
+    expect(() => gitPull(clone)).toThrow();
   });
 });
 
