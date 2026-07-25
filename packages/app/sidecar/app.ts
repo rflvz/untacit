@@ -47,6 +47,7 @@ import type {
 } from '../src/api-types.js';
 import type { LlmClient } from '@untacit/extractors';
 import { coreLoadError, loadCore, type CoreModule } from './core-loader.js';
+import { registerExtractRoutes } from './extract.js';
 import { registerInterviewRoutes } from './interview.js';
 import {
   buildOpenCommands,
@@ -64,8 +65,9 @@ export interface SidecarOptions {
   /** Root of the graph repo (the directory holding graph/, runs/, merges.json). */
   repoRoot: string;
   /**
-   * LLM client for the interview agent (tests inject a mock). Production
-   * resolves ClaudeCodeLlmClient lazily (engine = local Claude Code CLI).
+   * LLM client for the interview and extraction agents (tests inject a mock).
+   * Production resolves ClaudeCodeLlmClient lazily (engine = local Claude Code
+   * CLI), honoring the per-request model override.
    */
   llm?: LlmClient;
   /** Executes the opener commands of POST /api/open (injectable for tests). */
@@ -81,7 +83,11 @@ type GraphIndexInstance = ReturnType<CoreModule['GraphIndex']['open']>;
 function errorStatus(message: string): 400 | 404 | 409 | 500 {
   if (/not found/i.test(message)) return 404;
   if (/already/i.test(message)) return 409;
-  if (/no local file|must have|escapes the source root/i.test(message)) return 400;
+  // The last alternative covers a bad include/exclude in untacit.config.json
+  // (sidecar/extract.ts): the user's config is wrong, not the sidecar.
+  if (/no local file|must have|escapes the source root|not a valid regular expression/i.test(message)) {
+    return 400;
+  }
   return 500;
 }
 
@@ -129,6 +135,30 @@ export function createApp(opts: SidecarOptions): Hono {
   };
 
   app.use('/api/*', cors());
+
+  /**
+   * Serialize everything that writes the graph repo.
+   *
+   * Every write ends in a git commit (docs/03 §7 point 3), and two of them
+   * overlapping would race on the git index and on the canonical files a
+   * GraphStore.load had already snapshotted. That used to be near-impossible
+   * (each write was one short click-driven request); extraction jobs changed
+   * it — an import can now land minutes after the request that started it,
+   * while the user accepts a merge or finishes an interview. The sidecar is a
+   * single process, so a promise chain is enough.
+   *
+   * The chain never rejects: each link swallows its own failure so one failed
+   * write cannot poison the queue for the next.
+   */
+  let writeQueue: Promise<unknown> = Promise.resolve();
+  const serializeWrite = <T>(work: () => Promise<T> | T): Promise<T> => {
+    const next = writeQueue.then(work, work);
+    writeQueue = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  };
 
   /**
    * Wrap a handler: resolve core (503 when unavailable, docs note "core not
@@ -412,10 +442,12 @@ export function createApp(opts: SidecarOptions): Hono {
           : undefined;
       let result;
       try {
-        result = await core.importBatch(repoRoot, payload.batch, {
-          reindex: false,
-          ...(branch !== undefined ? { branch } : {}),
-        });
+        result = await serializeWrite(() =>
+          core.importBatch(repoRoot, payload.batch, {
+            reindex: false,
+            ...(branch !== undefined ? { branch } : {}),
+          }),
+        );
       } catch (err) {
         // Validator rejections and bad branch options are client problems.
         const message = err instanceof Error ? err.message : String(err);
@@ -473,16 +505,20 @@ export function createApp(opts: SidecarOptions): Hono {
     }),
   );
 
+  // Pull rewrites the working tree and push moves the remote ref: both go
+  // through the write queue so they never interleave with a running import.
   app.post(
     '/api/git/pull',
-    route((c, core) => {
+    route(async (c, core) => {
       if (!core.isGitRepo(repoRoot)) {
         return c.json({ error: 'not a git repository' } satisfies ApiError, 400);
       }
       try {
-        core.gitFetch(repoRoot);
-        const head = core.gitPull(repoRoot);
-        const body: GitSyncResponse = { ok: true, head, status: remoteStatus(core) };
+        const body = await serializeWrite(() => {
+          core.gitFetch(repoRoot);
+          const head = core.gitPull(repoRoot);
+          return { ok: true, head, status: remoteStatus(core) } satisfies GitSyncResponse;
+        });
         return c.json(body);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -493,14 +529,16 @@ export function createApp(opts: SidecarOptions): Hono {
 
   app.post(
     '/api/git/push',
-    route((c, core) => {
+    route(async (c, core) => {
       if (!core.isGitRepo(repoRoot)) {
         return c.json({ error: 'not a git repository' } satisfies ApiError, 400);
       }
       try {
-        core.gitPush(repoRoot);
-        const head = core.gitRevParse(repoRoot, 'HEAD');
-        const body: GitSyncResponse = { ok: true, head, status: remoteStatus(core) };
+        const body = await serializeWrite(() => {
+          core.gitPush(repoRoot);
+          const head = core.gitRevParse(repoRoot, 'HEAD');
+          return { ok: true, head, status: remoteStatus(core) } satisfies GitSyncResponse;
+        });
         return c.json(body);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -575,13 +613,18 @@ export function createApp(opts: SidecarOptions): Hono {
     route(async (c, core) => {
       const proposalId = c.req.param('id') ?? '';
       const payload = (await c.req.json().catch(() => ({}))) as { by?: string };
-      const store = core.GraphStore.load(repoRoot);
-      const record = core.acceptMergeProposal(store, proposalId, payload.by);
-      store.write();
-      const commit = core.gitCommitAll(
-        repoRoot,
-        `untacit: accept merge ${record.fromNodeId} -> ${record.intoNodeId} (proposal ${proposalId})`,
-      );
+      const { record, commit } = await serializeWrite(() => {
+        const store = core.GraphStore.load(repoRoot);
+        const merged = core.acceptMergeProposal(store, proposalId, payload.by);
+        store.write();
+        return {
+          record: merged,
+          commit: core.gitCommitAll(
+            repoRoot,
+            `untacit: accept merge ${merged.fromNodeId} -> ${merged.intoNodeId} (proposal ${proposalId})`,
+          ),
+        };
+      });
       const body: MergeActionResponse = {
         ok: true,
         proposalId,
@@ -601,8 +644,10 @@ export function createApp(opts: SidecarOptions): Hono {
     route(async (c, core) => {
       const proposalId = c.req.param('id') ?? '';
       const payload = (await c.req.json().catch(() => ({}))) as { by?: string };
-      core.rejectMergeProposal(repoRoot, proposalId, payload.by);
-      const commit = core.gitCommitAll(repoRoot, `untacit: reject merge proposal ${proposalId}`);
+      const commit = await serializeWrite(() => {
+        core.rejectMergeProposal(repoRoot, proposalId, payload.by);
+        return core.gitCommitAll(repoRoot, `untacit: reject merge proposal ${proposalId}`);
+      });
       const body: MergeActionResponse = {
         ok: true,
         proposalId,
@@ -628,19 +673,24 @@ export function createApp(opts: SidecarOptions): Hono {
           400,
         );
       }
-      const store = core.GraphStore.load(repoRoot);
-      const { edge, resolution } = core.resolveConflictEdge(store, {
-        nodeId,
-        edgeType,
-        target,
-        winnerKey,
-        by,
+      const { edge, resolution, commit } = await serializeWrite(() => {
+        const store = core.GraphStore.load(repoRoot);
+        const resolved = core.resolveConflictEdge(store, {
+          nodeId,
+          edgeType,
+          target,
+          winnerKey,
+          by,
+        });
+        store.write();
+        return {
+          ...resolved,
+          commit: core.gitCommitAll(
+            repoRoot,
+            `untacit: resolve conflict ${nodeId} -${edgeType}-> ${target} (${resolved.resolution.status})`,
+          ),
+        };
       });
-      store.write();
-      const commit = core.gitCommitAll(
-        repoRoot,
-        `untacit: resolve conflict ${nodeId} -${edgeType}-> ${target} (${resolution.status})`,
-      );
       const body: ConflictResolveResponse = {
         ok: true,
         status: edge.status as 'active' | 'deprecated',
@@ -723,15 +773,16 @@ export function createApp(opts: SidecarOptions): Hono {
       }
       if (payload.retrieval !== undefined) config.retrieval = payload.retrieval;
       if (payload.sources !== undefined) config.sources = payload.sources;
-      core.saveConfig(repoRoot, config);
-      let commit: string | null = null;
-      try {
-        commit = core.isGitRepo(repoRoot)
-          ? core.gitCommitAll(repoRoot, 'untacit: update settings')
-          : null;
-      } catch {
-        commit = null; // nothing changed (idempotent save) or no git identity
-      }
+      const commit = await serializeWrite(() => {
+        core.saveConfig(repoRoot, config);
+        try {
+          return core.isGitRepo(repoRoot)
+            ? core.gitCommitAll(repoRoot, 'untacit: update settings')
+            : null;
+        } catch {
+          return null; // nothing changed (idempotent save) or no git identity
+        }
+      });
       const body: SettingsUpdateResponse = { ok: true, config, commit };
       return c.json(body);
     }),
@@ -773,8 +824,11 @@ export function createApp(opts: SidecarOptions): Hono {
     }),
   );
 
+  // Extraction endpoints: /api/extract/* — see sidecar/extract.ts.
+  registerExtractRoutes(app, { repoRoot, route, serializeWrite, llm: opts.llm });
+
   // Interview endpoints (Fase 4): /api/interview/* — see sidecar/interview.ts.
-  registerInterviewRoutes(app, { repoRoot, route, getIndex, llm: opts.llm });
+  registerInterviewRoutes(app, { repoRoot, route, getIndex, serializeWrite, llm: opts.llm });
 
   app.get('/', (c) =>
     c.text(`untacit sidecar — graph repo: ${repoRoot}\nAPI under /api (try /api/health)\n`),

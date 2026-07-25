@@ -12,6 +12,13 @@ import type {
   ConflictResolveResponse,
   DiffResponse,
   Evidence,
+  ExtractJob,
+  ExtractJobsResponse,
+  ExtractPreviewRequest,
+  ExtractPreviewResponse,
+  ExtractSourcesResponse,
+  ExtractStartRequest,
+  ExtractStartResponse,
   GitLogResponse,
   GitStatusResponse,
   GitSyncResponse,
@@ -22,10 +29,12 @@ import type {
   InitResponse,
   InterviewAcceptAllResponse,
   InterviewAnswerResponse,
+  InterviewDiscardResponse,
   InterviewFinishResponse,
   InterviewGapsResponse,
   InterviewProposalRequest,
   InterviewProposalResponse,
+  InterviewSavedResponse,
   InterviewStartResponse,
   MergeActionResponse,
   NodeDetailResponse,
@@ -147,12 +156,35 @@ export const api = {
   ): Promise<RetrievalTestResponse> =>
     post('/api/retrieval/test', { query, retrieval, limit } satisfies RetrievalTestRequest),
 
+  // ---- Extraction from the app (Runs view) ----
+  /** Declared sources + whether the local `claude` engine is reachable. */
+  extractSources: (): Promise<ExtractSourcesResponse> => request('/api/extract/sources'),
+  /** Candidates/sections with no LLM call (--candidates-only / --sections-only). */
+  extractPreview: (req: ExtractPreviewRequest): Promise<ExtractPreviewResponse> =>
+    post('/api/extract/preview', req),
+  extractStart: (req: ExtractStartRequest): Promise<ExtractStartResponse> =>
+    post('/api/extract', req),
+  extractJobs: (): Promise<ExtractJobsResponse> => request('/api/extract'),
+  extractJob: (id: string): Promise<ExtractJob> =>
+    request(`/api/extract/${encodeURIComponent(id)}`),
+  extractCancel: (id: string): Promise<ExtractJob> =>
+    post(`/api/extract/${encodeURIComponent(id)}/cancel`),
+  /** The emitted batch — retrievable even when the import failed. */
+  extractBatchUrl: (id: string): string =>
+    `${API_BASE}/api/extract/${encodeURIComponent(id)}/batch`,
+
   // ---- Agentic interviews (Fase 4) ----
   interviewGaps: (): Promise<InterviewGapsResponse> => request('/api/interview/gaps'),
-  interviewStart: (role: string): Promise<InterviewStartResponse> =>
-    post('/api/interview/start', { role }),
+  interviewStart: (role: string, model?: string): Promise<InterviewStartResponse> =>
+    post('/api/interview/start', { role, ...(model !== undefined ? { model } : {}) }),
   interviewGet: (id: string): Promise<InterviewStartResponse> =>
     request(`/api/interview/${encodeURIComponent(id)}`),
+  /** Interrupted session persisted in .untacit/interview-session.json. */
+  interviewSaved: (): Promise<InterviewSavedResponse> => request('/api/interview/saved'),
+  interviewResume: (model?: string): Promise<InterviewStartResponse> =>
+    post('/api/interview/resume', model !== undefined ? { model } : {}),
+  interviewDiscardSaved: (): Promise<InterviewDiscardResponse> =>
+    request('/api/interview/saved', { method: 'DELETE' }),
   interviewAnswer: (id: string, text: string): Promise<InterviewAnswerResponse> =>
     post(`/api/interview/${encodeURIComponent(id)}/answer`, { text }),
   interviewProposal: (

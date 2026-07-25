@@ -5,6 +5,11 @@
  * accept with exceptions supported); existing low-confidence edges appear as
  * claims to confirm or refute. Finish imports the batch: accepted triples
  * enter with confidence 0.95 and validated_by = role — never a name.
+ *
+ * Sessions survive the app: the sidecar persists the resumable snapshot the
+ * CLI already writes (`.untacit/interview-session.json` — role, script, index
+ * and proposals, never the transcript), so reopening offers "reanudar" or
+ * "descartar" instead of losing the sitting.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -15,16 +20,20 @@ import type {
   InterviewFinishResponse,
   InterviewGapsResponse,
   InterviewProposal,
+  InterviewSavedSession,
   InterviewStateResponse,
   NodeType,
 } from '../api-types.js';
 import { Button, Chip, GlassCard, SectionHeader, type ChipTone } from '../ds/index.js';
 import { EDGE_TYPES, NODE_TYPES } from '../ontology.js';
+import { ModelPicker } from './ModelPicker.js';
 
 /**
- * Sessions live in the sidecar's memory; the view keeps only the id — in
- * sessionStorage, so switching tabs (which unmounts this component) or
- * reloading resumes the live interview instead of orphaning it.
+ * The live session lives in the sidecar's memory; the view keeps only the id —
+ * in sessionStorage, so switching tabs (which unmounts this component) or
+ * reloading picks the same conversation back up, transcript included. Closing
+ * the app loses that in-memory transcript; the persisted snapshot is what the
+ * resume card below reopens.
  */
 const SESSION_STORAGE_KEY = 'untacit-interview-id';
 
@@ -91,23 +100,64 @@ export function InterviewView({ onChanged }: { onChanged: () => void }) {
 function StartScreen({ onStarted }: { onStarted: (s: InterviewStateResponse) => void }) {
   const [gaps, setGaps] = useState<InterviewGapsResponse | null>(null);
   const [role, setRole] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [model, setModel] = useState('');
+  const [busy, setBusy] = useState<'start' | 'resume' | 'discard' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Interrupted session on disk; undefined until the first check answers. */
+  const [saved, setSaved] = useState<InterviewSavedSession | null | undefined>(undefined);
 
   useEffect(() => {
-    api.interviewGaps().then(setGaps).catch((err: Error) => setError(err.message));
+    api
+      .interviewGaps()
+      .then((result) => {
+        setGaps(result);
+        setSaved(result.saved);
+      })
+      .catch((err: Error) => setError(err.message));
+    // An unusable snapshot (unknown version, corrupt file) 409s on /saved
+    // while /gaps just reports null — surface it so "descartar" is reachable.
+    api.interviewSaved().catch((err: Error) => setError(err.message));
   }, []);
 
   const start = async () => {
-    setBusy(true);
+    setBusy('start');
     setError(null);
     try {
-      const result = await api.interviewStart(role.trim());
+      const result = await api.interviewStart(
+        role.trim(),
+        model.trim() !== '' ? model.trim() : undefined,
+      );
       onStarted(result.state);
     } catch (err) {
       setError(err instanceof SidecarError ? err.message : String(err));
     } finally {
-      setBusy(false);
+      setBusy(null);
+    }
+  };
+
+  const resume = async () => {
+    setBusy('resume');
+    setError(null);
+    try {
+      const result = await api.interviewResume(model.trim() !== '' ? model.trim() : undefined);
+      onStarted(result.state);
+    } catch (err) {
+      setError(err instanceof SidecarError ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const discard = async () => {
+    setBusy('discard');
+    setError(null);
+    try {
+      await api.interviewDiscardSaved();
+      setSaved(null);
+    } catch (err) {
+      setError(err instanceof SidecarError ? err.message : String(err));
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -120,6 +170,37 @@ function StartScreen({ onStarted }: { onStarted: (s: InterviewStateResponse) => 
           title="Entrevista agéntica"
           lead="El agente consulta el grafo, detecta zonas de baja cobertura y pregunta a quien de verdad sabe cómo funciona la empresa."
         />
+
+        {saved !== undefined && saved !== null && (
+          <GlassCard pad="22px 28px" style={{ maxWidth: 680, marginBottom: 18 }}>
+            <h3 className="settings-title">Entrevista sin terminar</h3>
+            <p style={{ margin: '0 0 8px', color: 'var(--text-body-card)', fontSize: 13.5 }}>
+              Hay una sesión guardada del rol{' '}
+              <b style={{ color: 'var(--text-heading-card)' }}>«{saved.speakerRole}»</b> ({saved.turn}{' '}
+              turno{saved.turn === 1 ? '' : 's'}, {saved.accepted} propuesta
+              {saved.accepted === 1 ? '' : 's'} aceptada{saved.accepted === 1 ? '' : 's'},{' '}
+              {saved.pending} pendiente{saved.pending === 1 ? '' : 's'}
+              {saved.verificationsPending > 0 &&
+                `, ${saved.verificationsPending} verificación${
+                  saved.verificationsPending === 1 ? '' : 'es'
+                } sin responder`}
+              ). Guardada el {new Date(saved.savedAt).toLocaleString()}.
+            </p>
+            <p className="dim" style={{ margin: '0 0 4px', fontSize: 12.5 }}>
+              Se retoman el guion y las propuestas.{' '}
+              <b>La conversación no se guarda nunca</b>: el agente arranca con un resumen de dónde
+              lo dejasteis, no con la transcripción.
+            </p>
+            <div className="interview-resume">
+              <Button size="sm" disabled={busy !== null || gaps?.llmReady === false} onClick={() => void resume()}>
+                {busy === 'resume' ? 'Retomando…' : 'Reanudar'}
+              </Button>
+              <Button size="sm" variant="glass" disabled={busy !== null} onClick={() => void discard()}>
+                {busy === 'discard' ? 'Descartando…' : 'Descartar y empezar de cero'}
+              </Button>
+            </div>
+          </GlassCard>
+        )}
         <GlassCard pad="26px 28px" style={{ maxWidth: 680, marginBottom: 20 }}>
           <p style={{ margin: '0 0 14px', color: 'var(--text-body-card)', fontSize: 14, lineHeight: 'var(--leading-card)' }}>
             El agente consulta el grafo, detecta zonas de baja cobertura o confianza y genera un
@@ -130,6 +211,15 @@ function StartScreen({ onStarted }: { onStarted: (s: InterviewStateResponse) => 
             <code className="mono" style={{ color: 'var(--cyan-bright)' }}>validated_by</code> —
             nunca tu nombre, y la transcripción no se guarda.
           </p>
+          {/* A saved session blocks a fresh start on purpose: "Comenzar" would
+              overwrite it, and the CLI asks for confirmation before doing that.
+              Reanudar or Descartar above decides it explicitly. */}
+          {saved !== undefined && saved !== null && (
+            <div className="dim" style={{ marginBottom: 8, fontSize: 12.5 }}>
+              Hay una entrevista sin terminar: reanúdala o descártala arriba antes de empezar una
+              nueva (empezar de cero la sobrescribiría).
+            </div>
+          )}
           <label className="dim" htmlFor="interview-role" style={{ fontSize: 13 }}>
             Rol de la persona entrevistada (p. ej. «administración», «producción»)
           </label>
@@ -142,18 +232,39 @@ function StartScreen({ onStarted }: { onStarted: (s: InterviewStateResponse) => 
               style={{ flex: 1, minWidth: 220 }}
               onChange={(e) => setRole(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && role.trim() !== '' && !busy && gaps?.llmReady !== false) {
+                if (
+                  e.key === 'Enter' &&
+                  role.trim() !== '' &&
+                  busy === null &&
+                  gaps?.llmReady !== false &&
+                  !(saved !== undefined && saved !== null)
+                ) {
                   void start();
                 }
               }}
             />
             <Button
               size="sm"
-              disabled={busy || role.trim() === '' || gaps?.llmReady === false}
+              disabled={
+                busy !== null ||
+                role.trim() === '' ||
+                gaps?.llmReady === false ||
+                (saved !== undefined && saved !== null)
+              }
               onClick={() => void start()}
             >
-              {busy ? 'Preparando guion…' : 'Comenzar'}
+              {busy === 'start' ? 'Preparando guion…' : 'Comenzar'}
             </Button>
+          </div>
+          {/* Model applies to both "Comenzar" and "Reanudar", like the CLI's
+              --model, which --resume also accepts. */}
+          <div className="extract-form" style={{ marginTop: 12, marginBottom: 0 }}>
+            <ModelPicker
+              id="interview-model"
+              value={model}
+              disabled={busy !== null}
+              onChange={setModel}
+            />
           </div>
           {gaps?.llmReady === false && (
             <div style={{ marginTop: 10, fontSize: 13, color: 'var(--danger-light)' }}>

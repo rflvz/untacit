@@ -293,6 +293,182 @@ export interface ConflictResolveResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Extraction from the app (sidecar/extract.ts): `extract code` / `extract
+// docs` over the sources declared in untacit.config.json, as a long-running
+// in-memory job. The engine is the local `claude` CLI — no API key anywhere.
+// ---------------------------------------------------------------------------
+
+export type ExtractKind = 'code' | 'docs';
+
+/** A declared source resolved against this machine, ready to extract from. */
+export interface ExtractSource {
+  kind: ExtractKind;
+  /** Stable key used in requests: the `name` (code) or the config `path` (docs). */
+  key: string;
+  /** Label for the picker: the source name, or the folder name for documents. */
+  label: string;
+  /** Path exactly as declared in untacit.config.json. */
+  path: string;
+  /** Absolute path it resolves to on this machine. */
+  resolvedPath: string;
+  exists: boolean;
+  /** Parseable documents found under the source (document sources only). */
+  documentCount?: number;
+}
+
+/** GET /api/extract/sources — the picker plus engine availability. */
+export interface ExtractSourcesResponse {
+  sources: ExtractSource[];
+  /** False when the local `claude` binary is unreachable: POST /api/extract 503s. */
+  llmReady: boolean;
+  /** Why the engine is unavailable, with the install hint (when llmReady false). */
+  llmDetail?: string;
+  /** Job currently running, null when the sidecar is idle (one at a time). */
+  runningJobId: string | null;
+}
+
+/** JSON-safe mirror of the extractors' Candidate (heuristic code fragment). */
+export interface ExtractCandidate {
+  repo: string;
+  path: string;
+  line_start: number;
+  line_end: number;
+  snippet: string;
+  /** Heuristic signals that fired, for judging candidate quality. */
+  signals: string[];
+}
+
+/** JSON-safe mirror of the extractors' DocumentSection. */
+export interface ExtractSection {
+  doc_id: string;
+  title: string;
+  section: string;
+  /** 1-based page number — present for paginated sources (PDF). */
+  page?: number;
+  text: string;
+}
+
+/** A source file the segmenter could not parse (reported, never fatal). */
+export interface ExtractSkippedFile {
+  /** Path relative to the source root. */
+  path: string;
+  reason: string;
+}
+
+/** Body of POST /api/extract/preview — the CLI's --candidates-only / --sections-only. */
+export interface ExtractPreviewRequest {
+  kind: ExtractKind;
+  /** ExtractSource.key. */
+  source: string;
+  /** code: cap on candidates scanned (default 50). */
+  maxCandidates?: number;
+  /** code: repo-relative files/dirs to scan instead of the whole source. */
+  paths?: string[];
+  /** Candidates (code) or sections (docs) per LLM call, for plannedCalls. */
+  chunkSize?: number;
+}
+
+/** POST /api/extract/preview — what an extraction would send, with no LLM call. */
+export interface ExtractPreviewResponse {
+  kind: ExtractKind;
+  source: string;
+  /** Chunk size the estimate used. */
+  chunkSize: number;
+  /** Present for kind = "code". */
+  candidates?: ExtractCandidate[];
+  /** Present for kind = "docs". */
+  sections?: ExtractSection[];
+  /** Source-relative files behind the preview. */
+  files: string[];
+  /** LLM calls the extraction would make with this chunking. */
+  plannedCalls: number;
+  /** Documents whose format could not be parsed (docs only). */
+  skipped?: ExtractSkippedFile[];
+}
+
+/** Body of POST /api/extract. */
+export interface ExtractStartRequest {
+  kind: ExtractKind;
+  /** ExtractSource.key. */
+  source: string;
+  maxCandidates?: number;
+  paths?: string[];
+  /** code: candidates per LLM call. docs: sections per LLM call. */
+  chunkSize?: number;
+  /** Model for the extraction agent (`claude --model`); default = Claude Code's. */
+  model?: string;
+  /** Commit the run on a branch (extraction-as-PR); true → run/<run_id>. */
+  branch?: string | boolean;
+}
+
+/**
+ * escaneo de candidatos → llamadas LLM → import, then a terminal phase.
+ * "cancelled" discards the partial batch, like Ctrl+C on `untacit extract`.
+ */
+export type ExtractPhase = 'scanning' | 'extracting' | 'importing' | 'done' | 'error' | 'cancelled';
+
+/** What the import produced once a job reaches phase "done" with changes. */
+export interface ExtractJobResult {
+  runId: string;
+  stats: RunStats;
+  rejections: ValidationIssue[];
+  proposals: MergeProposal[];
+  /** Commit hash of the run, null when nothing changed / repo not git. */
+  commit: string | null;
+  /** Branch the run was committed on, null for the current branch. */
+  branch: string | null;
+  noop: boolean;
+  /** Nodes the agent emitted, before the resolver merged them into the graph. */
+  batchNodes: number;
+  batchEdges: number;
+}
+
+/** Snapshot of an extraction job (GET /api/extract/:id and SSE `job` events). */
+export interface ExtractJob {
+  id: string;
+  kind: ExtractKind;
+  /** ExtractSource.key the job runs over. */
+  source: string;
+  phase: ExtractPhase;
+  /** Human-readable current step, shown verbatim in the UI. */
+  message: string;
+  startedAt: string;
+  finishedAt?: string;
+  /** Candidates (code) or sections (docs) the scan produced. */
+  units: number;
+  /** Units per LLM call. */
+  chunkSize: number;
+  /** LLM calls completed so far. */
+  llmCalls: number;
+  /** LLM calls the run will make in total (0 until the scan finishes). */
+  plannedCalls: number;
+  /** Elements the validator rejected during extraction. */
+  rejections: ValidationIssue[];
+  /** Model the agent runs on ("default" = Claude Code's own default). */
+  model: string;
+  /** True once a cancellation was requested (effective at the next chunk). */
+  cancelRequested: boolean;
+  /** Documents whose format could not be parsed (docs only). */
+  skipped?: ExtractSkippedFile[];
+  result?: ExtractJobResult;
+  /** Message of the failure that ended the job (phase "error"). */
+  error?: string;
+  /** True while the emitted batch is retrievable at /api/extract/:id/batch. */
+  batchAvailable: boolean;
+}
+
+/** POST /api/extract — 202 with the freshly created job. */
+export interface ExtractStartResponse {
+  job: ExtractJob;
+}
+
+/** GET /api/extract — remembered jobs, newest first. */
+export interface ExtractJobsResponse {
+  jobs: ExtractJob[];
+  runningJobId: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Agentic interviews (Fase 4, docs/03 §4.3). The shapes mirror the engine
 // types of @untacit/extractors — re-declared here (like ApiEdge) because the
 // frontend maps @untacit/core to types.ts and cannot import extractors.
@@ -357,20 +533,73 @@ export interface InterviewStateResponse {
 export interface InterviewGapsResponse {
   gaps: InterviewGap[];
   verifications: InterviewVerificationTarget[];
-  /** False when no LLM is reachable (missing ANTHROPIC_API_KEY): start would 503. */
+  /** False when the local `claude` binary is unreachable: start would 503. */
   llmReady: boolean;
   llmDetail?: string;
+  /** Interrupted session found on disk, resumable (null when there is none). */
+  saved: InterviewSavedSession | null;
+}
+
+/**
+ * Summary of the interrupted session persisted in
+ * `.untacit/interview-session.json` — the same file and format the CLI's
+ * `untacit interview --resume` reads.
+ *
+ * The transcript is NOT part of it: only the role, the script, the index and
+ * the proposals are ever written to disk (docs/05 §privacidad).
+ */
+export interface InterviewSavedSession {
+  interviewId: string;
+  /** Role of the interviewee — never a person's name. */
+  speakerRole: string;
+  /** ISO timestamp of the last save. */
+  savedAt: string;
+  turn: number;
+  script: string[];
+  scriptIndex: number;
+  finished: boolean;
+  /** Node/edge proposals already accepted. */
+  accepted: number;
+  /** Node/edge proposals still awaiting a decision. */
+  pending: number;
+  /** Cross-verifications still unanswered. */
+  verificationsPending: number;
+  /** True when the session is also live in the sidecar's memory. */
+  live: boolean;
+}
+
+/** GET /api/interview/saved — is there an interrupted session to resume? */
+export interface InterviewSavedResponse {
+  saved: InterviewSavedSession | null;
 }
 
 /** Body of POST /api/interview/start. */
 export interface InterviewStartRequest {
   /** Role identifier stored in every locator/validated_by (never a name). */
   role: string;
+  /** Model for the interviewer agent (`claude --model`, the CLI's --model). */
+  model?: string;
+}
+
+/** Body of POST /api/interview/resume — re-pick the model, like the CLI. */
+export interface InterviewResumeRequest {
+  model?: string;
 }
 
 export interface InterviewStartResponse {
   state: InterviewStateResponse;
   gaps: InterviewGap[];
+  /** Model this session's agent runs on ("default" = Claude Code's own). */
+  model: string;
+  /** True when the state came from the persisted session (resume). */
+  resumed?: boolean;
+}
+
+/** DELETE /api/interview/saved — drop the interrupted session. */
+export interface InterviewDiscardResponse {
+  ok: boolean;
+  /** False when there was nothing on disk to discard. */
+  discarded: boolean;
 }
 
 /** Body of POST /api/interview/:id/answer. */

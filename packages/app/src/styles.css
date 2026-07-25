@@ -1441,3 +1441,157 @@ select.ref-select {
   gap: 4px;
   cursor: pointer;
 }
+
+/* ------------------------------------------------- Extracción (Runs view) */
+
+.extract-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 20px;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+
+.extract-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--text-muted);
+}
+
+.extract-form select,
+.extract-form input[type='text'],
+.extract-form input[type='number'] {
+  background: var(--bg-terminal);
+  border: 1px solid var(--border-glass-mid);
+  color: var(--text-code);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  outline: none;
+  text-transform: none;
+  letter-spacing: normal;
+  transition:
+    border-color var(--dur-color),
+    box-shadow var(--dur-color);
+}
+
+.extract-form select:focus,
+.extract-form input:focus {
+  border-color: var(--border-glass-hover);
+  box-shadow: 0 0 0 3px rgba(68, 121, 255, 0.14);
+}
+
+.extract-form select {
+  min-width: 210px;
+  max-width: 320px;
+}
+
+.extract-form input[type='number'] {
+  width: 88px;
+}
+
+.extract-form input[type='text'] {
+  width: 150px;
+}
+
+.extract-form .checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: normal;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: var(--text-body);
+}
+
+/* Barra de progreso del job: fases y llamadas al agente. */
+.extract-progress {
+  margin-top: 12px;
+}
+
+.extract-phases {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.extract-bar {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: rgba(148, 168, 215, 0.14);
+  overflow: hidden;
+}
+
+.extract-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--grad-tile, linear-gradient(90deg, #4479ff, #6ee7f9));
+  transition: width 240ms ease-out;
+}
+
+/* Barra indeterminada mientras se escanea (aún no hay llamadas planificadas). */
+.extract-bar.indeterminate > span {
+  width: 34% !important;
+  animation: extractSweep 1.2s ease-in-out infinite;
+}
+
+@keyframes extractSweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+/* Vista previa de candidatos/secciones: lista monoespaciada acotada. */
+.extract-preview {
+  margin-top: 10px;
+  max-height: 230px;
+  overflow-y: auto;
+  border: 1px solid var(--border-glass-mid);
+  border-radius: 10px;
+  background: var(--bg-terminal);
+  padding: 8px 10px;
+}
+
+.extract-preview-item {
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(148, 168, 215, 0.08);
+  font-size: 12px;
+}
+
+.extract-preview-item:last-child {
+  border-bottom: none;
+}
+
+.extract-preview-item .snippet {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------- Entrevista: sesión guardada */
+
+.interview-resume {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+}
