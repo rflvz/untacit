@@ -28,7 +28,9 @@ into a temp repo with the CLI and set `UNTACIT_REPO` to it.
 
 - **Grafo** — global Sigma.js (WebGL) view: color by node type (Untacit DS
   palette), edge thickness by confidence, conflicted elements in amber, filters
-  by type/confidence/status, FTS search with focus-on-click.
+  by type/confidence/status, search with focus-on-click in three modes:
+  exact (FTS5), hybrid (RRF fusion) and semantic (embedding k-NN), like the
+  CLI's `search --mode`.
 - **Panel de detalle** — description, aliases, evidence (excerpt + locator per
   source type, `validated_by`), in/out edges with confidence bars. Code and
   document locators are clickable: `POST /api/open` resolves them against the
@@ -36,11 +38,19 @@ into a temp repo with the CLI and set `UNTACIT_REPO` to it.
   editor (`UNTACIT_OPEN_CMD` template, e.g. `code -g {path}:{line}`; defaults
   to VS Code, then the OS opener).
 - **Revisión** — the three trays: merge proposals (accept/reject → writes files
-  and commits through the core), low-confidence edges, and open conflicts with
-  their opposing evidence — the human marks the winning evidence and the edge
-  returns to `active` (supports wins) or turns `deprecated` (contradicts wins);
-  new evidence re-opens the conflict.
-- **Drift** — ontology-level diff between two git refs of the graph repo.
+  and commits through the core) with both nodes' name/description inline,
+  low-confidence edges (with a shortcut to verify them in an interview), and
+  open conflicts with their opposing evidence — the human marks the winning
+  evidence and the edge returns to `active` (supports wins) or turns
+  `deprecated` (contradicts wins); new evidence re-opens the conflict. A
+  reviewer **role** (persisted locally, never a name) is recorded as `by` in
+  every decision, and node ids link back to the graph view.
+- **Runs** — the graph-repo lifecycle without the terminal: run history
+  (id, source, stats, commit), batch import (paste or pick the JSON produced
+  by `untacit extract … --out`, with rejections and merge proposals surfaced),
+  and remote sync — ahead/behind against the upstream, ff-only pull and push.
+- **Drift** — ontology-level diff between two git refs of the graph repo; the
+  ref inputs autocomplete from the repo's recent commits.
 - **Entrevista** — Fase 4 (docs/03 §4.3): chat with the interviewer agent +
   live proposal panel. The agent derives its question script from actual graph
   gaps (processes nobody executes / nothing triggers, isolated nodes) and asks
@@ -58,12 +68,22 @@ into a temp repo with the CLI and set `UNTACIT_REPO` to it.
 ## Sidecar API
 
 `sidecar/server.ts` (Hono). `GET /api/health | stats | graph | node/:id |
-search | conflicts | review | runs | diff`,
+search (mode=fts|semantic|hybrid) | conflicts | review | runs | diff |
+git/log | git/status (?fetch=1)`,
+`POST /api/init` (create the graph-repo skeleton in the configured folder),
+`POST /api/import` (materialize an extraction batch as a run + commit),
+`POST /api/git/pull | push` (ff-only pull / push against the upstream),
 `POST /api/review/merge/:id/accept | reject`,
 `POST /api/review/conflict/resolve` and `POST /api/open` (resolve an
 evidence locator to a local file and open it). Reads always come from the
 derived SQLite index; writes go through the core (files first, then commit,
 then reindex).
+
+`GET/PUT /api/settings` covers `embeddings`, `retrieval` **and `sources`**,
+so the source repos below can be edited from Ajustes instead of by hand.
+When the picked folder has no `untacit.config.json`, the frontend shows an
+"initialize here" screen backed by `POST /api/init` — and it never queries
+the graph routes on an uninitialized folder (no stray `.untacit/`).
 
 Interview endpoints (in-memory sessions, LLM required except for `gaps`):
 `GET /api/interview/gaps | /api/interview/:id`,

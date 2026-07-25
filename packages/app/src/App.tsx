@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 
 import { api } from './api.js';
-import type { StatsResponse } from './api-types.js';
-import { Chip, LogoMark } from './ds/index.js';
+import type { HealthResponse, StatsResponse } from './api-types.js';
+import { Button, Chip, GlassCard, LogoMark } from './ds/index.js';
 import {
   baseName,
   installUpdate,
@@ -19,14 +19,16 @@ import { DriftView } from './views/DriftView.js';
 import { GraphView } from './views/GraphView.js';
 import { InterviewView } from './views/InterviewView.js';
 import { ReviewView } from './views/ReviewView.js';
+import { RunsView } from './views/RunsView.js';
 import { SettingsView } from './views/SettingsView.js';
 import { WelcomeView } from './views/WelcomeView.js';
 
-type Tab = 'graph' | 'review' | 'drift' | 'interview' | 'settings';
+type Tab = 'graph' | 'review' | 'runs' | 'drift' | 'interview' | 'settings';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'graph', label: 'Grafo' },
   { id: 'review', label: 'Revisión' },
+  { id: 'runs', label: 'Runs' },
   { id: 'drift', label: 'Drift' },
   { id: 'interview', label: 'Entrevista' },
   { id: 'settings', label: 'Ajustes' },
@@ -44,6 +46,12 @@ export function App() {
   // Newer release announced by the shell's silent startup check.
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [updating, setUpdating] = useState(false);
+  // Last health report: drives the "initialize a graph repo here" screen.
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [initBusy, setInitBusy] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
+  // Node another view asked the graph tab to focus (Revisión → Grafo).
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
 
   const refreshStats = () => {
     api
@@ -76,25 +84,39 @@ export function App() {
     if (!shellReady || welcomeVisible) return;
     let attempts = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const tryStats = () => {
+    // Health first: a folder that is not a graph repo gets the init screen
+    // instead of stats queries (which would create .untacit/ in it).
+    const tryConnect = () => {
       api
-        .stats()
-        .then((s) => {
-          setStats(s);
-          setError(null);
+        .health()
+        .then((h) => {
+          setHealth(h);
+          setSidecarRepo(h.repo);
+          if (!h.isGraphRepo) {
+            setStats(null);
+            setError(null);
+            return;
+          }
           api
-            .health()
-            .then((h) => setSidecarRepo(h.repo))
-            .catch(() => {});
+            .stats()
+            .then((s) => {
+              setStats(s);
+              setError(null);
+            })
+            .catch((err: Error) => {
+              setError(err.message);
+              if (attempts++ < 30) timer = setTimeout(tryConnect, 1000);
+            });
         })
         .catch((err: Error) => {
+          setHealth(null);
           setError(err.message);
-          if (attempts++ < 30) timer = setTimeout(tryStats, 1000);
+          if (attempts++ < 30) timer = setTimeout(tryConnect, 1000);
         });
     };
-    tryStats();
+    tryConnect();
     return () => clearTimeout(timer);
-  }, [shellReady, welcomeVisible, activeRepo]);
+  }, [shellReady, welcomeVisible, activeRepo, retryTick]);
 
   if (welcomeVisible && shell !== null) {
     return <WelcomeView shell={shell} onShellChanged={setShell} />;
@@ -107,6 +129,57 @@ export function App() {
         if (next !== null) setShell(next);
       })
       .catch((err: Error) => setError(err.message));
+  };
+
+  // The picked folder exists but has no untacit.config.json: offer to create
+  // the graph-repo skeleton right here (the CLI's `untacit init`, one click).
+  const initNeeded =
+    health !== null && health.repoExists && health.core === 'loaded' && !health.isGraphRepo;
+  if (initNeeded) {
+    const handleInit = () => {
+      setInitBusy(true);
+      api
+        .init()
+        .then(() => {
+          setHealth(null);
+          setRetryTick((t) => t + 1);
+        })
+        .catch((err: Error) => setError(err.message))
+        .finally(() => setInitBusy(false));
+    };
+    return (
+      <main className="welcome">
+        <GlassCard size="lg" pad="42px 46px" style={{ maxWidth: 580, width: '100%' }}>
+          <div className="welcome-logo">
+            <LogoMark size={42} />
+          </div>
+          <h1 className="welcome-title">Esta carpeta aún no es un repo de grafo</h1>
+          <p className="welcome-lead">
+            <code className="mono">{repoPath}</code> no contiene un{' '}
+            <code className="mono">untacit.config.json</code>. Puedes inicializarla ahora: se crea
+            la estructura (<code className="mono">graph/</code>, <code className="mono">runs/</code>,
+            configuración y git) y el grafo empieza vacío, listo para importar extracciones o
+            entrevistar.
+          </p>
+          <div className="init-actions">
+            <Button onClick={handleInit} disabled={initBusy}>
+              {initBusy ? 'Inicializando…' : 'Inicializar repo del grafo aquí'}
+            </Button>
+            {isDesktop && (
+              <Button variant="glass" onClick={handlePickRepo} disabled={initBusy}>
+                Elegir otra carpeta…
+              </Button>
+            )}
+          </div>
+          {error !== null && <p className="welcome-error">{error}</p>}
+        </GlassCard>
+      </main>
+    );
+  }
+
+  const openNode = (id: string) => {
+    setFocusNodeId(id);
+    setTab('graph');
   };
   // On Windows the shell downloads and launches the installer (the app
   // quits); elsewhere it opens the release page. Errors land in setError.
@@ -208,8 +281,19 @@ export function App() {
         </div>
       )}
       <main>
-        {tab === 'graph' && <GraphView />}
-        {tab === 'review' && <ReviewView onChanged={refreshStats} />}
+        {tab === 'graph' && (
+          <GraphView focusId={focusNodeId} onFocusHandled={() => setFocusNodeId(null)} />
+        )}
+        {tab === 'review' && (
+          <ReviewView
+            onChanged={refreshStats}
+            onOpenNode={openNode}
+            onGoToInterview={() => setTab('interview')}
+          />
+        )}
+        {tab === 'runs' && (
+          <RunsView onChanged={refreshStats} onGoToReview={() => setTab('review')} />
+        )}
         {tab === 'drift' && <DriftView />}
         {tab === 'interview' && <InterviewView onChanged={refreshStats} />}
         {tab === 'settings' && <SettingsView />}

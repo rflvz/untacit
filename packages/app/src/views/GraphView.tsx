@@ -82,7 +82,16 @@ function drawNodeHover(
   context.restore();
 }
 
-export function GraphView() {
+type SearchMode = 'fts' | 'hybrid' | 'semantic';
+
+export function GraphView({
+  focusId,
+  onFocusHandled,
+}: {
+  /** Node another view asked to focus (Revisión → Grafo); consumed once. */
+  focusId?: string | null;
+  onFocusHandled?: () => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
 
@@ -93,6 +102,8 @@ export function GraphView() {
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [searchMode, setSearchMode] = useState<SearchMode>('fts');
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   // Fetch the (filtered) graph.
   useEffect(() => {
@@ -181,16 +192,32 @@ export function GraphView() {
     }
   };
 
-  const runSearch = (q: string) => {
+  // Focus requested by another view (Revisión): wait for the renderer, then
+  // consume the request so a later manual click is not overridden.
+  useEffect(() => {
+    if (focusId === undefined || focusId === null || data === null) return;
+    focusNode(focusId);
+    onFocusHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusId, data]);
+
+  const runSearch = (q: string, mode: SearchMode = searchMode) => {
     setQuery(q);
     if (q.trim().length < 2) {
       setResults([]);
+      setSearchError(null);
       return;
     }
     api
-      .search(q, undefined, 8)
-      .then((r) => setResults(r.results))
-      .catch(() => setResults([]));
+      .search(q, undefined, 8, mode)
+      .then((r) => {
+        setResults(r.results);
+        setSearchError(null);
+      })
+      .catch((err: Error) => {
+        setResults([]);
+        setSearchError(err.message);
+      });
   };
 
   const toggle = <T,>(set: Set<T>, value: T): Set<T> => {
@@ -204,13 +231,40 @@ export function GraphView() {
     <div className="graph-layout">
       <aside className="graph-sidebar">
         <div className="filter-group">
-          <h3>Búsqueda (FTS)</h3>
+          <h3>Búsqueda</h3>
           <input
             type="search"
             placeholder="prepago, facturación…"
             value={query}
             onChange={(e) => runSearch(e.target.value)}
           />
+          <div className="search-modes">
+            {(
+              [
+                ['fts', 'exacta', 'FTS5 (bm25): coincidencia por palabras'],
+                ['hybrid', 'híbrida', 'Fusión RRF de léxico + embeddings'],
+                ['semantic', 'semántica', 'Solo k-NN de embeddings (cruza idiomas y sinónimos)'],
+              ] as const
+            ).map(([mode, label, hint]) => (
+              <label key={mode} title={hint}>
+                <input
+                  type="radio"
+                  name="search-mode"
+                  checked={searchMode === mode}
+                  onChange={() => {
+                    setSearchMode(mode);
+                    runSearch(query, mode);
+                  }}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+          {searchError !== null && (
+            <div className="dim" style={{ fontSize: 11.5, color: 'var(--amber)' }}>
+              {searchError}
+            </div>
+          )}
           <div className="search-results">
             {results.map((r) => (
               <button key={r.id} onClick={() => focusNode(r.id)}>

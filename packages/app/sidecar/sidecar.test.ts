@@ -1,4 +1,5 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import * as core from '@untacit/core';
@@ -7,8 +8,12 @@ import type {
   ApiError,
   ConflictResolveResponse,
   DiffResponse,
+  GitLogResponse,
+  GitStatusResponse,
   GraphResponse,
   HealthResponse,
+  ImportResponse,
+  InitResponse,
   MergeActionResponse,
   NodeDetailResponse,
   OpenResponse,
@@ -67,6 +72,7 @@ describe('sidecar read routes', () => {
     expect(body.repo).toBe(repo);
     expect(body.repoExists).toBe(true);
     expect(body.isGitRepo).toBe(true);
+    expect(body.isGraphRepo).toBe(true);
     expect(body.core).toBe('loaded');
   });
 
@@ -483,6 +489,174 @@ describe('sidecar conflict resolution (write + commit)', () => {
   });
 });
 
+describe('sidecar graph-repo lifecycle (init + import)', () => {
+  const validBatch = {
+    run_id: '2026-07-15T10-00-00-code',
+    source_type: 'code',
+    nodes: [
+      {
+        mention: 'Almacén central',
+        type: 'entity',
+        name: 'Almacén central',
+        description: 'Almacén desde el que se sirve la mercancía.',
+        evidence: {
+          locator: { repo: 'web-pedidos', path: 'src/warehouse.ts', line_start: 1, line_end: 5 },
+          excerpt: 'export interface Warehouse {',
+        },
+      },
+    ],
+    edges: [],
+  };
+
+  it('POST /api/init turns a plain folder into a graph repo', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'untacit-plain-'));
+    const app = createApp({ repoRoot: dir });
+
+    const before = await getJson<HealthResponse>(app, '/api/health');
+    expect(before.isGraphRepo).toBe(false);
+
+    const body = await postJson<InitResponse>(app, '/api/init');
+    expect(body.ok).toBe(true);
+    expect(body.repo).toBe(dir);
+
+    const after = await getJson<HealthResponse>(app, '/api/health');
+    expect(after.isGraphRepo).toBe(true);
+    expect(after.isGitRepo).toBe(true);
+    expect(existsSync(join(dir, 'untacit.config.json'))).toBe(true);
+    expect(existsSync(join(dir, 'graph'))).toBe(true);
+
+    // The fresh repo serves an empty graph.
+    const stats = await getJson<StatsResponse>(app, '/api/stats');
+    expect(stats.nodes_total).toBe(0);
+
+    // Re-init is a conflict, not a silent overwrite.
+    const again = await postJson<ApiError>(app, '/api/init', {}, 409);
+    expect(again.error).toContain('already');
+  });
+
+  it('POST /api/import materializes a batch as a run with commit, idempotently', async () => {
+    const repo = createFixtureRepo();
+    const app = createApp({ repoRoot: repo });
+
+    const body = await postJson<ImportResponse>(app, '/api/import', { batch: validBatch });
+    expect(body.ok).toBe(true);
+    expect(body.runId).toBe('2026-07-15T10-00-00-code');
+    expect(body.stats.nodes_created).toBe(1);
+    expect(body.rejections).toEqual([]);
+    expect(body.commit).toBeTruthy();
+    expect(body.noop).toBe(false);
+    expect(core.gitStatusClean(repo)).toBe(true);
+
+    // The run enters the history (newest first) and the graph serves the node.
+    const runs = await getJson<RunsResponse>(app, '/api/runs');
+    expect(runs.runs[0].id).toBe('2026-07-15T10-00-00-code');
+    const graph = await getJson<GraphResponse>(app, '/api/graph');
+    expect(graph.nodes.some((n) => n.name === 'Almacén central')).toBe(true);
+
+    // Idempotence canary: the same batch again changes nothing.
+    const again = await postJson<ImportResponse>(app, '/api/import', { batch: validBatch });
+    expect(again.noop).toBe(true);
+    expect(core.gitStatusClean(repo)).toBe(true);
+  });
+
+  it('POST /api/import rejects invalid batches and malformed bodies', async () => {
+    const repo = createFixtureRepo();
+    const app = createApp({ repoRoot: repo });
+
+    // Mandatory evidence (docs/02): a node without evidence never enters the
+    // graph — it lands in rejections with its reason, the rest imports.
+    const noEvidence = {
+      ...validBatch,
+      run_id: '2026-07-16T10-00-00-code',
+      nodes: [
+        ...validBatch.nodes,
+        { mention: 'X', type: 'entity', name: 'X', description: 'x' },
+      ],
+    };
+    const partial = await postJson<ImportResponse>(app, '/api/import', { batch: noEvidence });
+    expect(partial.rejections.length).toBeGreaterThanOrEqual(1);
+    expect(partial.stats.rejected).toBeGreaterThanOrEqual(1);
+    expect(partial.stats.nodes_created).toBe(1); // the valid node still enters
+
+    // A schema-level malformed batch is rejected wholesale.
+    const malformed = await postJson<ApiError>(app, '/api/import', { batch: { nodes: 'nope' } }, 400);
+    expect(malformed.error).toContain('validator');
+
+    const missing = await postJson<ApiError>(app, '/api/import', {}, 400);
+    expect(missing.error).toContain('batch');
+  });
+});
+
+describe('sidecar git surface', () => {
+  it('GET /api/git/log lists the repo commits, newest first', async () => {
+    const repo = createFixtureRepo();
+    const app = createApp({ repoRoot: repo });
+    const body = await getJson<GitLogResponse>(app, '/api/git/log');
+    expect(body.commits).toHaveLength(2);
+    expect(body.commits[0].subject).toContain('2026-07-14');
+    expect(body.commits[0].hash).toMatch(/^[0-9a-f]{40}$/);
+    expect(Number.isNaN(Date.parse(body.commits[0].date))).toBe(false);
+
+    const limited = await getJson<GitLogResponse>(app, '/api/git/log?limit=1');
+    expect(limited.commits).toHaveLength(1);
+  });
+
+  it('GET /api/git/status reports branch and no upstream for a local repo', async () => {
+    const repo = createFixtureRepo();
+    const app = createApp({ repoRoot: repo });
+    const body = await getJson<GitStatusResponse>(app, '/api/git/status');
+    expect(body.branch).toBeTypeOf('string');
+    expect(body.upstream).toBeNull();
+    expect(body.ahead).toBe(0);
+    expect(body.behind).toBe(0);
+    expect(body.dirty).toBe(false);
+  });
+
+  it('POST /api/git/pull without an upstream is a 409 with detail', async () => {
+    const repo = createFixtureRepo();
+    const app = createApp({ repoRoot: repo });
+    const body = await postJson<ApiError>(app, '/api/git/pull', {}, 409);
+    expect(body.error).toContain('pull');
+    expect(body.detail).toBeTypeOf('string');
+  });
+
+  it('is a 400 (status/pull) or empty log for a non-git folder', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'untacit-nogit-'));
+    const app = createApp({ repoRoot: dir });
+    const log = await getJson<GitLogResponse>(app, '/api/git/log');
+    expect(log.commits).toEqual([]);
+    const status = await getJson<ApiError>(app, '/api/git/status', 400);
+    expect(status.error).toContain('git');
+    await postJson<ApiError>(app, '/api/git/pull', {}, 400);
+    await postJson<ApiError>(app, '/api/git/push', {}, 400);
+  });
+});
+
+describe('GET /api/search modes (fts | semantic | hybrid)', () => {
+  it('serves hybrid and semantic search once a provider is configured', async () => {
+    const repo = createFixtureRepo();
+    const app = createApp({ repoRoot: repo });
+    // Hermetic provider: hash embeddings need no model download.
+    await postLike<SettingsUpdateResponse>(app, '/api/settings', 'PUT', {
+      embeddings: { provider: 'hash' },
+    } satisfies SettingsUpdateRequest);
+
+    const hybrid = await getJson<SearchResponse>(app, '/api/search?q=prepago&mode=hybrid');
+    expect(hybrid.results.map((r) => r.id)).toContain('rule-bloqueo-pedido-sin-prepago');
+
+    const semantic = await getJson<SearchResponse>(app, '/api/search?q=prepago&mode=semantic');
+    expect(semantic.results.length).toBeGreaterThan(0);
+  });
+
+  it('semantic mode without a provider is a 400; unknown modes too', async () => {
+    const repo = createFixtureRepo(); // fixture config: embeddings "none"
+    const app = createApp({ repoRoot: repo });
+    const body = await getJson<ApiError>(app, '/api/search?q=prepago&mode=semantic', 400);
+    expect(body.error).toContain('embedding provider');
+    await getJson<ApiError>(app, '/api/search?q=prepago&mode=turbo', 400);
+  });
+});
+
 describe('sidecar settings & retrieval test (Ajustes)', () => {
   let repo: string;
   let app: Hono;
@@ -523,6 +697,40 @@ describe('sidecar settings & retrieval test (Ajustes)', () => {
   it('PUT /api/settings rejects an empty payload', async () => {
     const body = await postLike<ApiError>(app, '/api/settings', 'PUT', {}, 400);
     expect(body.error).toContain('embeddings');
+  });
+
+  it('PUT /api/settings persists sources and round-trips them', async () => {
+    const update: SettingsUpdateRequest = {
+      sources: {
+        code: [{ name: 'web-pedidos', path: '../web-pedidos' }],
+        documents: [{ path: '../docs-internos' }],
+      },
+    };
+    const body = await postLike<SettingsUpdateResponse>(app, '/api/settings', 'PUT', update);
+    expect(body.ok).toBe(true);
+    expect(body.config.sources.code[0].path).toBe('../web-pedidos');
+
+    const readBack = await getJson<SettingsResponse>(app, '/api/settings');
+    expect(readBack.config.sources.documents).toEqual([{ path: '../docs-internos' }]);
+  });
+
+  it('PUT /api/settings rejects malformed sources', async () => {
+    const bad = await postLike<ApiError>(
+      app,
+      '/api/settings',
+      'PUT',
+      { sources: { code: [{ name: '', path: 'x' }], documents: [] } },
+      400,
+    );
+    expect(bad.error).toContain('sources');
+
+    await postLike<ApiError>(
+      app,
+      '/api/settings',
+      'PUT',
+      { sources: { code: [], documents: [{ path: '' }] } },
+      400,
+    );
   });
 
   it('POST /api/retrieval/test runs the pipeline and reports the plan', async () => {

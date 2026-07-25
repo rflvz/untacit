@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { api } from '../api.js';
-import type { DiffResponse } from '../api-types.js';
+import type { DiffResponse, GitLogEntry } from '../api-types.js';
 import { Button, SectionHeader, Terminal } from '../ds/index.js';
 
 /** Drift between two git refs of the graph repo, in ontology terms (docs/03 §5). */
@@ -11,6 +11,15 @@ export function DriftView() {
   const [diff, setDiff] = useState<DiffResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [commits, setCommits] = useState<GitLogEntry[]>([]);
+
+  // Recent commits feed the ref pickers, so nobody has to type hashes by hand.
+  useEffect(() => {
+    api
+      .gitLog(50)
+      .then((r) => setCommits(r.commits))
+      .catch(() => setCommits([]));
+  }, []);
 
   const compare = () => {
     setLoading(true);
@@ -39,6 +48,7 @@ export function DriftView() {
         <div className="drift-controls">
           <input
             type="text"
+            list="drift-refs"
             value={refA}
             onChange={(e) => setRefA(e.target.value)}
             placeholder="ref antigua"
@@ -46,14 +56,30 @@ export function DriftView() {
           <span className="dim mono">→</span>
           <input
             type="text"
+            list="drift-refs"
             value={refB}
             onChange={(e) => setRefB(e.target.value)}
             placeholder="ref nueva"
           />
+          <datalist id="drift-refs">
+            <option value="HEAD" />
+            <option value="HEAD~1" />
+            {commits.map((c) => (
+              <option key={c.hash} value={c.hash.slice(0, 10)}>
+                {`${c.subject} · ${c.date.slice(0, 10)}`}
+              </option>
+            ))}
+          </datalist>
           <Button size="sm" onClick={compare} disabled={loading}>
             {loading ? 'Comparando…' : 'Comparar'}
           </Button>
         </div>
+        {commits.length > 1 && (
+          <div className="dim" style={{ margin: '0 0 14px', fontSize: 12 }}>
+            Los campos autocompletan con los últimos {commits.length} commits del repo del grafo
+            (escribe para filtrar por mensaje).
+          </div>
+        )}
         {error && <div className="error-banner" style={{ margin: '0 0 16px' }}>{error}</div>}
         {diff && (
           <>
